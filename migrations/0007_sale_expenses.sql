@@ -1,0 +1,1 @@
+ALTER TABLE expenses ADD COLUMN sale_id INTEGER REFERENCES sales(id);
