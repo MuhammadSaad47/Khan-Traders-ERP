@@ -46,13 +46,24 @@ export function useItems() {
   })
 }
 
+// Hook for grouped items (merged by product for POS/Products pages)
+export function useItemsGrouped() {
+  return useQuery({
+    queryKey: ['items-grouped'],
+    queryFn: async () => await window.api.catalog.getItemsGrouped()
+  })
+}
+
 export function useCreateItem() {
   const queryClient = useQueryClient()
   const user = useAuthStore(state => state.user)
   
   return useMutation({
     mutationFn: async (data: any) => await window.api.catalog.createItem(data, user!.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['items'] })
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['items'] })
+      queryClient.invalidateQueries({ queryKey: ['items-grouped'] })
+    }
   })
 }
 
@@ -61,8 +72,13 @@ export function useUpdateItem() {
   const user = useAuthStore(state => state.user)
   
   return useMutation({
-    mutationFn: async ({ id, data }: { id: number, data: any }) => await window.api.catalog.updateItem(id, data, user!.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['items'] })
+    mutationFn: async ({ id, data }: { id: number, data: any }) => {
+      return await window.api.catalog.updateItem(id, data, user!.id)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['items'] })
+      queryClient.invalidateQueries({ queryKey: ['items-grouped'] })
+    }
   })
 }
 
@@ -75,11 +91,20 @@ export function useDeleteItem() {
     mutationFn: async (id: number) => await window.api.catalog.deleteItem(id, user!.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['items'] })
+      queryClient.invalidateQueries({ queryKey: ['items-grouped'] })
       toast({ title: 'Success', description: 'Item deleted successfully' })
     },
     onError: (error: any) => {
       const msg = error instanceof Error ? error.message : 'Failed to delete item'
       toast({ title: 'Delete Failed', description: msg.replace('Error invoking remote method \'catalog:deleteItem\': Error: ', ''), variant: 'destructive' })
     }
+  })
+}
+
+// Analytics
+export function useInventoryAnalytics() {
+  return useQuery({
+    queryKey: ['inventoryAnalytics'],
+    queryFn: async () => await window.api.catalog.getAnalytics()
   })
 }

@@ -15,6 +15,8 @@ export async function getStockAdjustments() {
     .select([
       'stock_adjustments.id',
       'stock_adjustments.change_qty',
+      'stock_adjustments.cost_price_snapshot',
+      'stock_adjustments.total_value',
       'stock_adjustments.reason',
       'stock_adjustments.note',
       'stock_adjustments.created_at',
@@ -27,10 +29,30 @@ export async function getStockAdjustments() {
 
 export async function createStockAdjustment(data: StockAdjustmentInput, userId: number) {
   return await db.transaction().execute(async (trx) => {
+    // Fetch item cost price AND current stock for validation
+    const item = await trx.selectFrom('items')
+      .select(['cost_price', 'current_stock', 'name'])
+      .where('id', '=', data.item_id)
+      .executeTakeFirst()
+
+    if (!item) throw new Error(`Item #${data.item_id} not found`)
+
+    // CRITICAL: Prevent stock from going negative on damage/theft/expiry adjustments
+    if (data.change_qty < 0 && (item.current_stock + data.change_qty) < 0) {
+      throw new Error(
+        `Cannot remove ${Math.abs(data.change_qty)} unit(s) from "${item.name}": only ${item.current_stock} in stock.`
+      )
+    }
+
+    const costPrice = item.cost_price || 0
+    const totalValue = Math.abs(data.change_qty) * costPrice
+
     const adj = await trx.insertInto('stock_adjustments')
       .values({
         item_id: data.item_id,
         change_qty: data.change_qty,
+        cost_price_snapshot: costPrice,
+        total_value: totalValue,
         reason: data.reason,
         note: data.note,
         created_by: userId
@@ -59,7 +81,7 @@ export async function createStockAdjustment(data: StockAdjustmentInput, userId: 
       })
       .execute()
       
-    await writeAuditLog(userId, 'create', 'stock_adjustments', adj.id, null, adj)
+    await writeAuditLog(userId, 'create', 'stock_adjustments', adj.id, null, adj, trx)
     return adj
   })
 }

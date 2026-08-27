@@ -39,7 +39,7 @@ export function registerPartiesIpc() {
   })
 
   // Customers
-  ipcMain.handle('parties:getCustomers', async () => await partiesService.getCustomers())
+  ipcMain.handle('parties:getCustomers', async (_, filters) => await partiesService.getCustomers(filters))
   ipcMain.handle('parties:createCustomer', async (_, data, userId) => {
     const validData = CreateCustomerSchema.parse(data)
     return await partiesService.createCustomer(validData, userId)
@@ -63,8 +63,21 @@ export function registerPartiesIpc() {
     const validData = CreatePartySchema.parse(data)
     return await partiesService.updateSupplier(id, validData, userId)
   })
-  ipcMain.handle('parties:deleteSupplier', async (_, id, userId) => {
-    await requireRole(['admin', 'manager'])
+  ipcMain.handle('parties:deleteSupplier', async (_, id: number, userId: number) => {
+    await requireRole(['admin'])
     return await partiesService.deleteSupplier(id, userId)
   })
+
+  // Statements
+  ipcMain.handle('parties:getCustomerStatement', async (_, customerId: number, fromDate: string, toDate: string) => {
+    return await partiesService.getCustomerStatement(customerId, fromDate, toDate)
+  })
+
+  ipcMain.handle('parties:getSupplierStatement', async (_, supplierId: number, fromDate: string, toDate: string) => {
+    return await partiesService.getSupplierStatement(supplierId, fromDate, toDate)
+  })
+
+  // Analytics
+  ipcMain.handle('parties:getTopCustomers', async () => await partiesService.getTopCustomers())
+  ipcMain.handle('parties:getTopSuppliers', async () => await partiesService.getTopSuppliers())
 }

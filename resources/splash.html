@@ -3,12 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Khan Trader POS</title>
+  <title>Khan Trader POS Loading</title>
   <style>
     :root {
-      --color-primary: #0F172A;
-      --color-accent: #0EA5E9;
-      --color-accent-glow: rgba(14, 165, 233, 0.4);
+      --color-bg: #0B1120;
+      --color-glow: rgba(14, 165, 233, 0.5);
     }
     body {
       margin: 0;
@@ -18,34 +17,125 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background-color: var(--color-primary);
+      background: radial-gradient(circle at center, #1E293B 0%, var(--color-bg) 100%);
       color: #fff;
       font-family: 'Inter', -apple-system, sans-serif;
       overflow: hidden;
       -webkit-app-region: drag;
+      perspective: 1000px;
     }
 
-    .logo-container {
-      margin-bottom: 24px;
-      filter: drop-shadow(0 10px 15px rgba(0,0,0,0.3));
+    /* ─── SCENE CONTAINER ─── */
+    .scene {
+      position: relative;
+      width: 400px;
+      height: 200px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transform-style: preserve-3d;
+    }
+
+    /* ─── VAN ─── */
+    .van {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      margin-top: -30px;
+      width: 140px;
+      height: 80px;
+      transform: translateX(-400px) translateZ(50px) rotateY(-15deg);
+      animation: driveIn 1.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+      z-index: 10;
+      filter: drop-shadow(0 15px 15px rgba(0,0,0,0.5));
+    }
+
+    @keyframes driveIn {
+      0% { transform: translateX(-400px) translateZ(50px) rotateY(-15deg); }
+      60% { transform: translateX(-30px) translateZ(50px) rotateY(-5deg); }
+      100% { transform: translateX(0px) translateZ(80px) rotateY(0deg) scale(1.1); }
+    }
+
+    .van svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ─── BOTTLES ─── */
+    .bottles-container {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      margin-top: -20px;
+      margin-left: -10px;
+      width: 60px;
+      height: 60px;
+      transform-style: preserve-3d;
+    }
+
+    .bottle {
+      position: absolute;
+      width: 16px;
+      height: 48px;
+      opacity: 1;
+      transform-origin: bottom center;
+    }
+
+    .bottle svg {
+      width: 100%;
+      height: 100%;
+      filter: drop-shadow(0 5px 5px rgba(0,0,0,0.4));
+    }
+
+    .b1 { left: 22px; top: -15px; z-index: 3; }
+    .b2 { left: 10px; top: 0px; z-index: 2; }
+    .b3 { left: 34px; top: 0px; z-index: 2; }
+    .b4 { left: 0px; top: 15px; z-index: 1; }
+    .b5 { left: 22px; top: 15px; z-index: 1; }
+    .b6 { left: 44px; top: 15px; z-index: 1; }
+
+    @keyframes breakBottle {
+      0%, 59% { opacity: 1; transform: scale(1); }
+      60%, 100% { opacity: 0; transform: scale(0); }
+    }
+
+    .b1 { animation: breakBottle 1.5s linear forwards; }
+    .b2 { animation: breakBottle 1.5s linear forwards; }
+    .b3 { animation: breakBottle 1.5s linear forwards; }
+    .b4 { animation: breakBottle 1.5s linear forwards; }
+    .b5 { animation: breakBottle 1.5s linear forwards; }
+    .b6 { animation: breakBottle 1.5s linear forwards; }
+
+    /* ─── TYPOGRAPHY & UI ─── */
+    .title-container {
+      text-align: center;
+      opacity: 0;
+      transform: translateY(20px);
+      animation: fadeUp 1s ease 1s forwards;
+    }
+
+    @keyframes fadeUp {
+      to { opacity: 1; transform: translateY(0); }
     }
     
     .title {
-      font-size: 26px;
+      font-size: 32px;
       font-weight: 800;
       margin-bottom: 4px;
       letter-spacing: 2px;
       text-transform: uppercase;
-      background: linear-gradient(135deg, #FFFFFF 0%, #CBD5E1 100%);
+      background: linear-gradient(135deg, #FFFFFF 0%, #38BDF8 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.3));
     }
     
     .subtitle {
       font-size: 11px;
       text-transform: uppercase;
-      letter-spacing: 4px;
-      color: #64748B;
+      letter-spacing: 6px;
+      color: #94A3B8;
       margin-bottom: 40px;
       font-weight: 600;
     }
@@ -57,65 +147,110 @@
       height: 16px;
       font-weight: 500;
       letter-spacing: 0.5px;
+      opacity: 0;
+      animation: fadeIn 0.5s ease 1.5s forwards;
+    }
+
+    @keyframes fadeIn {
+      to { opacity: 1; }
     }
     
     .progress-bar {
-      width: 300px;
+      width: 320px;
       height: 4px;
       background: rgba(0,0,0,0.5);
       border-radius: 4px;
       overflow: hidden;
       box-shadow: inset 0 1px 3px rgba(0,0,0,0.4);
+      opacity: 0;
+      animation: fadeIn 0.5s ease 1.5s forwards;
     }
     
     .progress-fill {
       height: 100%;
       background: linear-gradient(90deg, #0284C7, #38BDF8);
       width: 0%;
-      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: width 0.3s ease;
+      box-shadow: 0 0 10px #38BDF8;
     }
   </style>
 </head>
 <body>
-  <div class="logo-container">
-    <svg width="140" height="140" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="gradK" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="#F1F5F9"/>
-          <stop offset="50%" stop-color="#94A3B8"/>
-          <stop offset="100%" stop-color="#475569"/>
-        </linearGradient>
-        <linearGradient id="gradT" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="#7DD3FC"/>
-          <stop offset="50%" stop-color="#0284C7"/>
-          <stop offset="100%" stop-color="#0369A1"/>
-        </linearGradient>
-        <linearGradient id="gradSwoosh" x1="0" y1="0" x2="1" y2="0.5">
-          <stop offset="0%" stop-color="#1E3A8A"/>
-          <stop offset="50%" stop-color="#0284C7"/>
-          <stop offset="100%" stop-color="#0EA5E9"/>
-        </linearGradient>
-        <filter id="innerShadow" x="-20%" y="-20%" width="140%" height="140%">
-          <feDropShadow dx="2" dy="4" stdDeviation="4" flood-opacity="0.3" flood-color="#000"/>
-        </filter>
-      </defs>
-      
-      <g filter="url(#innerShadow)" transform="translate(15, 10) skewX(-12)">
-        <path d="M -5 10 C -25 45 5 95 70 80 C 40 90 -10 65 0 10 Z" fill="url(#gradSwoosh)"/>
-        <path d="M 15 0 C -5 20 -10 40 -5 50 C -5 30 5 15 25 5 Z" fill="#1E3A8A" opacity="0.8"/>
-        
-        <polygon points="12,15 28,15 28,75 12,75" fill="url(#gradK)"/>
-        <polygon points="28,45 58,15 76,15 42,45" fill="url(#gradK)"/>
-        <polygon points="38,45 66,75 84,75 50,45" fill="url(#gradK)"/>
-        
-        <polygon points="52,15 100,15 100,30 68,30" fill="url(#gradT)"/>
-        <polygon points="76,30 76,75 60,75 60,30" fill="url(#gradT)"/>
-      </g>
-    </svg>
-  </div>
   
-  <div class="title">Khan Traders</div>
-  <div class="subtitle">Enterprise Management</div>
+  <div class="scene">
+    <div class="bottles-container">
+      <script>
+        const bottleSVG = `
+          <svg viewBox="0 0 16 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M6 0h4v6c0 1 1 2 2 3l2 4v31c0 2-1 4-3 4H5c-2 0-3-2-3-4V13l2-4c1-1 2-2 2-3V0z" fill="#0EA5E9" fill-opacity="0.8"/>
+            <path d="M4 22h8v10H4V22z" fill="#E2E8F0"/>
+            <path d="M6 0h4v3H6z" fill="#EF4444"/>
+            <path d="M5 4h1v40H5z" fill="#FFFFFF" fill-opacity="0.3"/>
+          </svg>
+        `;
+        for (let i = 1; i <= 6; i++) {
+          document.write(`<div class="bottle b${i}">${bottleSVG}</div>`);
+        }
+
+        // Generate glass shards for the explosion
+        for (let i = 0; i < 40; i++) {
+          const size = Math.random() * 8 + 3;
+          const tx = (Math.random() - 0.5) * 400; // Scatter widely horizontally
+          const ty = (Math.random() - 0.5) * 400 - 50; // Scatter upwards
+          const rz = Math.random() * 720;
+          const ry = Math.random() * 720;
+          const delay = Math.random() * 0.1; // slight random delay for explosion realism
+          
+          document.write(`
+            <style>
+              .shard-${i} {
+                position: absolute;
+                left: 25px; top: 15px;
+                width: ${size}px; height: ${size}px;
+                background: ${Math.random() > 0.5 ? 'rgba(14, 165, 233, 0.8)' : 'rgba(255, 255, 255, 0.8)'};
+                clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+                opacity: 0;
+                animation: shatter-${i} 1.5s cubic-bezier(0.1, 1, 0.3, 1) forwards;
+                animation-delay: ${delay}s;
+                z-index: 20;
+              }
+              @keyframes shatter-${i} {
+                0%, 59% { transform: translate(0, 0) rotate(0); opacity: 0; }
+                60% { opacity: 1; }
+                100% { transform: translate(${tx}px, ${ty}px) rotateZ(${rz}deg) rotateY(${ry}deg); opacity: 0; }
+              }
+            </style>
+            <div class="shard-${i}"></div>
+          `);
+        }
+      </script>
+    </div>
+
+    <div class="van">
+      <svg viewBox="0 0 140 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="70" cy="76" rx="60" ry="4" fill="#000" fill-opacity="0.4"/>
+        <path d="M5 20h75v50H5z" fill="#0369A1"/>
+        <path d="M5 20h75v5H5z" fill="#0EA5E9"/>
+        <path d="M80 30h25l15 15v25H80z" fill="#0284C7"/>
+        <path d="M80 30h25l10 10H80z" fill="#38BDF8"/>
+        <path d="M85 35h15l8 10H85z" fill="#0F172A"/>
+        <path d="M85 35h15l3 3H85z" fill="#334155"/>
+        <circle cx="25" cy="70" r="10" fill="#1E293B"/>
+        <circle cx="25" cy="70" r="4" fill="#94A3B8"/>
+        <circle cx="105" cy="70" r="10" fill="#1E293B"/>
+        <circle cx="105" cy="70" r="4" fill="#94A3B8"/>
+        <text x="42" y="45" font-size="12" font-weight="bold" font-family="sans-serif" fill="#F8FAFC" text-anchor="middle">KHAN</text>
+        <text x="42" y="60" font-size="10" font-family="sans-serif" fill="#BAE6FD" text-anchor="middle">TRADERS</text>
+        <circle cx="118" cy="55" r="3" fill="#FEF08A"/>
+        <path d="M121 52l15-5v16l-15-5z" fill="#FEF08A" fill-opacity="0.3"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="title-container">
+    <div class="title">Khan Traders</div>
+    <div class="subtitle">Enterprise Management</div>
+  </div>
   
   <div class="status" id="status-text">Initializing core systems...</div>
   

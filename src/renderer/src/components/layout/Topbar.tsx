@@ -1,8 +1,12 @@
-import { Search, Moon, Sun } from 'lucide-react'
+import { Search, Moon, Sun, LogOut } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
 import { useEffect, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+
+// Detect platform once at module load — window.navigator.platform is available in Electron renderer
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+const searchShortcutLabel = isMac ? '⌘K' : 'Ctrl+K'
 
 export default function Topbar() {
   const user = useAuthStore(state => state.user)
@@ -17,7 +21,7 @@ export default function Topbar() {
     document.documentElement.setAttribute('data-theme', newTheme)
   }
 
-  // Handle global shortcut Ctrl+K
+  // Global search shortcut — Ctrl+K on Windows/Linux, Cmd+K on Mac
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -29,30 +33,55 @@ export default function Topbar() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
+  const initials = user?.fullName
+    ? user.fullName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
+    : '?'
+
   return (
-    <header className="h-16 border-b border-border bg-card flex items-center justify-between px-6 transition-colors">
+    <header className="h-16 border-b border-border bg-card flex items-center justify-between px-6 shrink-0 transition-colors">
+      {/* Search */}
       <div className="flex-1 max-w-md relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-        <Input 
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" size={16} />
+        <Input
           id="global-search"
-          placeholder="Search items, invoices... (⌘K)" 
-          className="pl-10 bg-background/50 focus:bg-background border-none ring-1 ring-border focus-visible:ring-primary transition-all shadow-sm" 
+          placeholder={`Search items, invoices... (${searchShortcutLabel})`}
+          className="pl-9 bg-background/50 focus:bg-background border-none ring-1 ring-border focus-visible:ring-primary transition-all shadow-sm text-sm"
         />
       </div>
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={toggleTheme} className="text-muted-foreground hover:text-foreground">
-          {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+
+      {/* Right side controls */}
+      <div className="flex items-center gap-3 ml-4">
+        {/* Theme toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleTheme}
+          className="text-muted-foreground hover:text-foreground"
+          title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+        >
+          {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
         </Button>
-        <div className="flex items-center gap-3 border-l border-border pl-4">
-          <div className="flex flex-col items-end">
-            <span className="text-sm font-medium leading-none">{user?.fullName}</span>
-            <span className="text-xs text-muted-foreground mt-1 capitalize">{user?.role}</span>
+
+        {/* User info + logout */}
+        <div className="flex items-center gap-3 border-l border-border pl-3">
+          {/* Avatar */}
+          <div className="h-8 w-8 rounded-full bg-primary/15 flex items-center justify-center text-primary text-xs font-bold select-none shrink-0">
+            {initials}
           </div>
-          <div className="h-9 w-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
-            {user?.fullName.charAt(0).toUpperCase()}
+          {/* Name + role */}
+          <div className="flex flex-col items-start leading-tight min-w-0">
+            <span className="text-sm font-medium truncate max-w-[120px]">{user?.fullName}</span>
+            <span className="text-[11px] text-muted-foreground capitalize">{user?.role?.replace('_', ' ')}</span>
           </div>
-          <Button variant="outline" size="sm" onClick={logout} className="ml-2">
-            Logout
+          {/* Logout */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={logout}
+            className="text-muted-foreground hover:text-destructive ml-1 shrink-0"
+            title="Logout"
+          >
+            <LogOut size={16} />
           </Button>
         </div>
       </div>

@@ -72,7 +72,18 @@ export async function getUsers() {
     .select(['id', 'username', 'full_name', 'role'])
     .where('is_active', '=', 1)
     .where('is_deleted', '=', 0)
-    .orderBy('full_name', 'asc')
+    .where('role', 'in', ['admin', 'manager', 'cashier']) // Exclude van_salesman
+    .orderBy('created_at', 'desc')
+    .execute()
+}
+
+export async function getVanSalesmen() {
+  return await db.selectFrom('users')
+    .select(['id', 'username', 'full_name', 'role'])
+    .where('is_active', '=', 1)
+    .where('is_deleted', '=', 0)
+    .where('role', '=', 'van_salesman') // Only van_salesman
+    .orderBy('created_at', 'desc')
     .execute()
 }
 
@@ -101,11 +112,61 @@ export async function createSalesman(data: { fullName: string, phone: string, ad
     full_name: data.fullName,
     role: 'van_salesman',
     phone: data.phone,
-    // Note: If type issues arise, ensure address is handled correctly or casted, since kysely typings might not reflect dynamic migrations immediately
     address: data.address
   } as any).returningAll().executeTakeFirstOrThrow()
   
   await writeAuditLog(userId, 'create', 'users', result.id, null, result)
   
   return { id: result.id, full_name: result.full_name, username: result.username, password: plainPassword }
+}
+
+export async function changePassword(userId: number, currentPass: string, newPass: string) {
+  const user = await db.selectFrom('users').where('id', '=', userId).selectAll().executeTakeFirst()
+  if (!user) throw new Error('User not found')
+
+  const isValid = await bcrypt.compare(currentPass, user.password_hash)
+  if (!isValid) throw new Error('Current password is incorrect')
+
+  const hash = await bcrypt.hash(newPass, 12)
+  await db.updateTable('users').where('id', '=', userId).set({ password_hash: hash }).execute()
+  await writeAuditLog(userId, 'update', 'users', userId, { field: 'password' })
+  
+  return { success: true }
+}
+
+export async function resetPassword(adminId: number, targetUserId: number, newPass: string) {
+  const hash = await bcrypt.hash(newPass, 12)
+  await db.updateTable('users').where('id', '=', targetUserId).set({ password_hash: hash }).execute()
+  await writeAuditLog(adminId, 'update', 'users', targetUserId, { field: 'password_reset' })
+  return { success: true }
+}
+
+export async function createUser(adminId: number, data: { username: string, fullName: string, role: string, password: string }) {
+  const existing = await db.selectFrom('users')
+    .selectAll()
+    .where('username', '=', data.username)
+    .executeTakeFirst()
+  if (existing) throw new Error('Username already exists')
+
+  const hash = await bcrypt.hash(data.password, 12)
+  
+  const result = await db.insertInto('users').values({
+    username: data.username,
+    password_hash: hash,
+    full_name: data.fullName,
+    role: data.role
+  }).returningAll().executeTakeFirstOrThrow()
+
+  await writeAuditLog(adminId, 'create', 'users', result.id, null, result)
+  
+  return { id: result.id, username: result.username, role: result.role, full_name: result.full_name }
+}
+
+export async function deleteUser(adminId: number, targetUserId: number) {
+  if (adminId === targetUserId) throw new Error('You cannot delete your own account')
+  
+  await db.updateTable('users').where('id', '=', targetUserId).set({ is_active: 0, is_deleted: 1 }).execute()
+  await writeAuditLog(adminId, 'delete', 'users', targetUserId, { action: 'deleted' })
+  
+  return { success: true }
 }

@@ -11,7 +11,7 @@ export function registerExpensesIpc() {
     const validData = CreateCategorySchema.parse({ name })
     return await expensesService.createExpenseCategory(validData.name)
   })
-  ipcMain.handle('expenses:getAll', async () => await expensesService.getExpenses())
+  ipcMain.handle('expenses:getAll', async (_, filters) => await expensesService.getExpenses(filters))
   ipcMain.handle('expenses:create', async (_, data, userId) => {
     const validData = CreateExpenseSchema.parse(data)
     return await expensesService.createExpense(validData, userId)

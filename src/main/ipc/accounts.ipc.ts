@@ -23,4 +23,24 @@ export function registerAccountsIpc() {
     const validData = TransferFundsSchema.parse(data)
     return await accountsService.transferFunds(userId, validData)
   })
+
+  ipcMain.handle('accounts:addCapital', async (_, data: any, userId: number) => {
+    await requireRole(['admin', 'manager'])
+    return await accountsService.addCapitalInvestment(userId, data)
+  })
+
+  ipcMain.handle('accounts:withdrawCapital', async (_, data: any, userId: number) => {
+    await requireRole(['admin', 'manager'])
+    return await accountsService.withdrawCapital(userId, data)
+  })
+
+  ipcMain.handle('accounts:deleteTransaction', async (_, transactionId: number, userId: number) => {
+    await requireRole(['admin', 'manager'])
+    return await accountsService.deleteAccountTransaction(userId, transactionId)
+  })
+
+  ipcMain.handle('accounts:updateTransaction', async (_, transactionId: number, data: any, userId: number) => {
+    await requireRole(['admin', 'manager'])
+    return await accountsService.updateAccountTransaction(userId, transactionId, data)
+  })
 }

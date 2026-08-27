@@ -1,5 +1,42 @@
 PRAGMA foreign_keys = ON;
 
+-- ============================================
+-- FOREIGN KEY STRATEGY DOCUMENTATION
+-- ============================================
+--
+-- This database uses a mixed FK cascade strategy optimized for data integrity:
+--
+-- 1. TRANSACTION LINE ITEMS (CASCADE):
+--    - sale_items.sale_id → sales(id) ON DELETE CASCADE
+--    - purchase_items.purchase_id → purchases(id) ON DELETE CASCADE
+--    - Rationale: Line items are meaningless without their parent transaction.
+--                 Deleting a sale/purchase should automatically delete its items.
+--
+-- 2. MASTER RECORDS (RESTRICT - default):
+--    - sales.customer_id → customers(id) [no ON DELETE]
+--    - purchases.supplier_id → suppliers(id) [no ON DELETE]
+--    - payments.account_id → accounts(id) [no ON DELETE]
+--    - items.category_id → categories(id) [no ON DELETE]
+--    - Rationale: Prevents accidental data loss. Cannot delete a customer
+--                 who has sales, or an account with transactions.
+--                 Application layer handles soft-delete with is_deleted flag.
+--
+-- 3. AUDIT TRAIL (RESTRICT - default):
+--    - *.created_by → users(id) [no ON DELETE]
+--    - *.deleted_by → users(id) [no ON DELETE]
+--    - Rationale: Preserves audit history. Cannot delete a user who has
+--                 created/modified records. Maintains data lineage.
+--
+-- 4. SOFT-DELETE PATTERN:
+--    - All master tables use is_deleted flag instead of hard deletes
+--    - Foreign keys remain valid (point to soft-deleted records)
+--    - Application filters is_deleted = 0 in queries
+--    - Historical data always preserved with referential integrity
+--
+-- NOTE: SQLite default for unspecified ON DELETE is RESTRICT (prevent delete).
+--       This is the safest option for financial/transactional data.
+-- ============================================
+
 -- ============ USERS & SETTINGS ============
 
 CREATE TABLE users (
@@ -47,7 +84,7 @@ CREATE TABLE categories (
 CREATE TABLE items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
-  variant TEXT,                              -- e.g. "1.5L", "250ml"
+  variant TEXT,                              -- Product variation: flavor, color, grade (e.g., "Mango", "Original", "Premium")
   barcode TEXT UNIQUE,
   category_id INTEGER REFERENCES categories(id),
   units_per_crate INTEGER NOT NULL DEFAULT 1 CHECK (units_per_crate > 0),
@@ -259,30 +296,6 @@ CREATE TABLE payments (
 );
 
 -- ============ INSTALLMENTS ============
-
-CREATE TABLE installment_plans (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  sale_id INTEGER NOT NULL REFERENCES sales(id),
-  total_amount INTEGER NOT NULL CHECK (total_amount > 0),
-  num_installments INTEGER NOT NULL CHECK (num_installments > 0),
-  frequency TEXT NOT NULL CHECK (frequency IN ('weekly','biweekly','monthly')),
-  late_fee_percent REAL NOT NULL DEFAULT 0 CHECK (late_fee_percent >= 0),
-  grace_period_days INTEGER NOT NULL DEFAULT 0 CHECK (grace_period_days >= 0),
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE installment_schedule (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  plan_id INTEGER NOT NULL REFERENCES installment_plans(id) ON DELETE CASCADE,
-  installment_no INTEGER NOT NULL,
-  due_date TEXT NOT NULL,
-  amount_due INTEGER NOT NULL CHECK (amount_due >= 0),
-  amount_paid INTEGER NOT NULL DEFAULT 0,     -- cached, see §6
-  late_fee INTEGER NOT NULL DEFAULT 0,
-  late_fee_applied INTEGER NOT NULL DEFAULT 0,
-  payment_date TEXT,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','partial','paid','overdue'))
-);
 
 -- ============ VAN SALES ============
 

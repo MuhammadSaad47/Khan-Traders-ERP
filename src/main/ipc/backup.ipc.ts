@@ -3,7 +3,8 @@ import {
   authenticateGoogleDrive,
   getBackupStatus,
   backupToGoogleDrive,
-  restoreFromGoogleDrive
+  restoreFromGoogleDrive,
+  disconnectGoogleDrive
 } from '../services/backup.service'
 
 export const registerBackupIPC = () => {
@@ -37,6 +38,14 @@ export const registerBackupIPC = () => {
       return { success: true }
     } catch (error: any) {
       console.error('Backup restore error:', error)
+      return { success: false, error: error.message }
+    }
+  })
+  ipcMain.handle('backup:disconnect', async () => {
+    try {
+      disconnectGoogleDrive()
+      return { success: true }
+    } catch (error: any) {
       return { success: false, error: error.message }
     }
   })

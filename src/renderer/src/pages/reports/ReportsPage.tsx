@@ -7,6 +7,7 @@ import {
 import { downloadCSV } from '../../utils/export'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { 
@@ -20,7 +21,8 @@ import {
   Store,
   Truck,
   Building2,
-  CalendarDays
+  CalendarDays,
+  Package
 } from 'lucide-react'
 import { 
   format, 
@@ -38,15 +40,18 @@ type ActiveTab = 'pnl' | 'sales' | 'parties' | 'inventory'
 export default function ReportsPage() {
   const [preset, setPreset] = useState<DatePreset>('this_month')
   const [activeTab, setActiveTab] = useState<ActiveTab>('pnl')
+  const [productSearch, setProductSearch] = useState('')
 
   const getDateRangeForPreset = (p: DatePreset) => {
     const now = new Date()
+    const today = format(new Date(now.getFullYear(), now.getMonth(), now.getDate()), 'yyyy-MM-dd')
+    
     switch (p) {
       case 'today':
-        return { from: format(now, 'yyyy-MM-dd'), to: format(now, 'yyyy-MM-dd') }
+        return { from: today, to: today }
       case 'yesterday': {
-        const y = subDays(now, 1)
-        return { from: format(y, 'yyyy-MM-dd'), to: format(y, 'yyyy-MM-dd') }
+        const yesterday = format(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1), 'yyyy-MM-dd')
+        return { from: yesterday, to: yesterday }
       }
       case 'this_week':
         return { from: format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd'), to: format(endOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd') }
@@ -57,7 +62,7 @@ export default function ReportsPage() {
         return { from: format(startOfMonth(lm), 'yyyy-MM-dd'), to: format(endOfMonth(lm), 'yyyy-MM-dd') }
       }
       default:
-        return { from: format(subDays(now, 30), 'yyyy-MM-dd'), to: format(now, 'yyyy-MM-dd') }
+        return { from: format(subDays(now, 30), 'yyyy-MM-dd'), to: today }
     }
   }
 
@@ -199,6 +204,13 @@ export default function ReportsPage() {
       {/* TAB 1: FINANCIAL INCOME STATEMENT (P&L) */}
       {activeTab === 'pnl' && (
         <div className="space-y-6">
+          {isReportLoading && (
+            <div className="p-8 text-center text-muted-foreground animate-pulse">
+              Loading financial report...
+            </div>
+          )}
+          {!isReportLoading && (
+            <>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <Card className="border-border/60 bg-card shadow-sm">
               <CardHeader className="pb-1">
@@ -325,13 +337,21 @@ export default function ReportsPage() {
               </Table>
             </CardContent>
           </Card>
+            </>
+          )}
         </div>
       )}
 
       {/* TAB 2: SALES & PRODUCTS BREAKDOWN */}
       {activeTab === 'sales' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {isReportLoading ? (
+            <div className="p-8 text-center text-muted-foreground animate-pulse">
+              Loading sales breakdown...
+            </div>
+          ) : (
+            <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-card p-4 rounded-xl border border-border/60 shadow-sm flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium">Counter Sales</p>
@@ -355,19 +375,35 @@ export default function ReportsPage() {
               </div>
               <Building2 className="w-6 h-6 text-emerald-500 opacity-80" />
             </div>
+
+            <div className="bg-card p-4 rounded-xl border border-border/60 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground font-medium">Total Ctns Sold</p>
+                <p className="font-bold text-xl mt-0.5">{sales.topItems.reduce((acc: number, item: any) => acc + (Number(item.qtySold) || 0), 0).toLocaleString()}</p>
+              </div>
+              <Package className="w-6 h-6 text-orange-500 opacity-80" />
+            </div>
           </div>
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold">Top Selling Products Statement</h3>
-              <Button variant="outline" size="sm" className="gap-2 text-xs" onClick={() => downloadCSV(sales.topItems, 'top-selling-products.csv')}>
-                <FileSpreadsheet className="w-3.5 h-3.5" /> Export CSV
-              </Button>
+              <h3 className="text-base font-bold">Products Sales Statement</h3>
+              <div className="flex gap-2">
+                <Input 
+                  placeholder="Search products..." 
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  className="h-8 text-xs w-[200px]"
+                />
+                <Button variant="outline" size="sm" className="gap-2 text-xs" onClick={() => downloadCSV(sales.topItems, 'products-sales.csv')}>
+                  <FileSpreadsheet className="w-3.5 h-3.5" /> Export CSV
+                </Button>
+              </div>
             </div>
 
-            <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+            <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm max-h-[calc(100vh-380px)] overflow-y-auto">
               <Table>
-                <TableHeader className="bg-muted/40">
+                <TableHeader className="bg-muted/40 sticky top-0 z-10 backdrop-blur-sm">
                   <TableRow>
                     <TableHead className="text-[11px] font-bold uppercase tracking-wider">Product Name</TableHead>
                     <TableHead className="text-[11px] font-bold uppercase tracking-wider">Size / Variant</TableHead>
@@ -377,14 +413,16 @@ export default function ReportsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sales.topItems.length === 0 ? (
+                  {sales.topItems.filter((item: any) => item.name.toLowerCase().includes(productSearch.toLowerCase())).length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                         No product sales recorded for this period.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    sales.topItems.map((item: any) => (
+                    sales.topItems
+                      .filter((item: any) => item.name.toLowerCase().includes(productSearch.toLowerCase()))
+                      .map((item: any) => (
                       <TableRow key={item.id} className="hover:bg-muted/30 transition-colors">
                         <TableCell className="font-bold">{item.name}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{item.variant || item.size || 'Standard'}</TableCell>
@@ -402,12 +440,20 @@ export default function ReportsPage() {
               </Table>
             </div>
           </div>
+            </>
+          )}
         </div>
       )}
 
       {/* TAB 3: RECEIVABLES & PAYABLES (PARTY LEDGERS) */}
       {activeTab === 'parties' && (
         <div className="space-y-6">
+          {isReportLoading || isPartySummaryLoading ? (
+            <div className="p-8 text-center text-muted-foreground animate-pulse">
+              Loading party details...
+            </div>
+          ) : (
+            <>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <Card className="border-border/60 bg-card shadow-sm">
               <CardHeader className="pb-1">
@@ -513,12 +559,20 @@ export default function ReportsPage() {
               </Table>
             </div>
           </div>
+            </>
+          )}
         </div>
       )}
 
       {/* TAB 4: WAREHOUSE STOCK VALUATION */}
       {activeTab === 'inventory' && (
         <div className="space-y-6">
+          {isValuationLoading ? (
+            <div className="p-8 text-center text-muted-foreground animate-pulse">
+              Loading inventory valuation...
+            </div>
+          ) : (
+            <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
             <Card className="border-border/60 bg-card shadow-sm">
               <CardHeader className="pb-1">
@@ -550,6 +604,8 @@ export default function ReportsPage() {
               </CardContent>
             </Card>
           </div>
+            </>
+          )}
         </div>
       )}
     </div>

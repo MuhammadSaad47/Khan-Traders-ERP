@@ -5,6 +5,7 @@ export const SaleItemSchema = z.object({
   qty: z.number().int().positive(),
   unit_price: z.number().int().min(0),
   line_total: z.number().int().min(0),
+  grouped_ids: z.array(z.number().int().positive()).optional()
 })
 
 export const CreateSaleSchema = z.object({
@@ -17,7 +18,7 @@ export const CreateSaleSchema = z.object({
   account_id: z.number().int().positive().optional(),
   sale_type: z.enum(['counter', 'van', 'wholesale']),
   van_assignment_id: z.number().int().positive().optional(),
-  ctns_returned: z.number().int().min(0).optional(),
+
   overheads: z.array(z.object({
     category_id: z.union([z.number(), z.string()]),
     amount: z.number().int().positive(),
@@ -59,8 +60,14 @@ export const UpdatePurchaseSchema = z.object({
   discount: z.number().int().min(0).default(0),
   net_total: z.number().int().min(0),
   paid_amount: z.number().int().min(0).default(0),
+  payment_method: z.enum(['cash', 'bank', 'easypaisa', 'cheque', 'other']).optional(),
+  account_id: z.number().int().positive().optional(),
+  date: z.string().optional(),
   items: z.array(PurchaseItemSchema).min(1, 'Purchase must have at least one item')
-})
+}).refine(data => {
+  if (data.paid_amount > 0 && !data.account_id) return false;
+  return true;
+}, { message: 'Account ID is required when paying', path: ['account_id'] })
 
 export const RecordPaymentSchema = z.object({
   party_type: z.enum(['customer', 'supplier']),
@@ -68,27 +75,16 @@ export const RecordPaymentSchema = z.object({
   amount: z.number().int().positive('Amount must be greater than 0'),
   payment_method: z.enum(['cash', 'bank', 'easypaisa', 'cheque', 'other']),
   account_id: z.number().int().positive(),
-  reference_type: z.enum(['sale', 'purchase', 'installment', 'general', 'refund']).optional(),
+  reference_type: z.enum(['sale', 'purchase', 'general', 'refund']).optional(),
   reference_id: z.number().int().positive().optional(),
   note: z.string().optional(),
-  is_refund: z.boolean().optional()
-})
-
-export const CreateInstallmentPlanSchema = z.object({
-  sale_id: z.number().int().positive(),
-  total_amount: z.number().int().positive(),
-  num_installments: z.number().int().positive(),
-  frequency: z.enum(['weekly', 'biweekly', 'monthly']),
-  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD'),
-  late_fee_percent: z.number().min(0).optional(),
-  grace_period_days: z.number().int().min(0).optional()
-})
-
-export const RecordInstallmentPaymentSchema = z.object({
-  schedule_id: z.number().int().positive(),
-  amount: z.number().int().positive(),
-  payment_method: z.enum(['cash', 'bank', 'easypaisa', 'cheque', 'other']),
-  account_id: z.number().int().positive()
+  date: z.string().optional(),
+  is_refund: z.boolean().optional(),
+  // Explicit invoice allocations — replaces FIFO if provided
+  allocations: z.array(z.object({
+    id: z.number().int().positive(),
+    amount: z.number().int().positive()
+  })).optional()
 })
 
 export const CreateVanAssignmentSchema = z.object({
@@ -98,9 +94,10 @@ export const CreateVanAssignmentSchema = z.object({
 })
 
 export const ReconcileVanAssignmentSchema = z.object({
-  assignment_id: z.number().int().positive(),
-  cash_collected: z.number().int().min(0),
-  account_id: z.number().int().positive()
+  returns: z.array(z.object({
+    item_id: z.number().int().positive(),
+    qty_returned: z.number().int().min(0)
+  })).optional()
 })
 
 export const CreateAccountSchema = z.object({
@@ -114,6 +111,7 @@ export const TransferFundsSchema = z.object({
   from_account_id: z.number().int().positive(),
   to_account_id: z.number().int().positive(),
   amount: z.number().int().positive(),
+  date: z.string().optional(),
   reference: z.string().optional()
 })
 
@@ -123,17 +121,16 @@ export const CreateCategorySchema = z.object({
 
 export const CreateItemSchema = z.object({
   name: z.string().min(1),
+  variant: z.string().optional(),
+  size: z.string().optional(),
+  packaging: z.string().optional(),
   barcode: z.string().optional(),
-  category_id: z.number().int().positive(),
+  category_id: z.number().int().positive().optional(),
+  supplier_id: z.number().int().positive().optional(),
+  units_per_ctn: z.number().int().min(1).optional().default(1),
   cost_price: z.number().int().min(0),
   selling_price: z.number().int().min(0),
   wholesale_price: z.number().int().min(0).optional(),
-  stock: z.number().int().default(0),
-  min_stock: z.number().int().default(0),
-  unit: z.string().default('pcs'),
-  units_per_ctn: z.number().int().min(1).default(1),
-  specs: z.string().optional(),
-  supplier_id: z.number().int().positive().optional(),
   low_stock_threshold: z.number().int().min(0).default(0)
 })
 
@@ -145,9 +142,8 @@ export const CreatePartySchema = z.object({
 })
 
 export const CreateCustomerSchema = CreatePartySchema.extend({
-  route_id: z.number().int().positive().optional(),
-  ctn_balance: z.number().int().default(0),
-  credit_limit: z.number().int().min(0).default(0)
+  shop_name: z.string().optional(),
+  ctn_balance: z.number().int().default(0)
 })
 
 export const CreateAreaSchema = z.object({
@@ -163,6 +159,7 @@ export const CreateExpenseSchema = z.object({
   category_id: z.number().int().positive(),
   amount: z.number().int().positive(),
   account_id: z.number().int().positive(),
+  date: z.string().optional(),
   note: z.string().optional()
 })
 

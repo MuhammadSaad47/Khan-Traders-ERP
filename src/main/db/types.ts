@@ -35,7 +35,7 @@ export interface AccountTransactions {
   description: string | null;
   id: Generated<number>;
   reference_id: number | null;
-  reference_type: string | null;
+  reference_type: 'sale' | 'purchase' | 'payment' | 'expense' | 'transfer' | 'adjustment' | 'capital' | 'withdrawal' | null;
   type: string;
 }
 
@@ -78,6 +78,9 @@ export interface BusinessSettings {
   logo_path: string | null;
   low_stock_threshold_default: Generated<number>;
   phone: string | null;
+  printer_interface: string | null;
+  printer_type: Generated<string>;
+  printer_width: Generated<number>;
   receipt_footer: Generated<string | null>;
   theme: Generated<string>;
   timezone: Generated<string>;
@@ -107,10 +110,8 @@ export interface CtnTransactions {
 
 export interface Customers {
   address: string | null;
-  area_id: number | null;
   balance: Generated<number>;
   created_at: Generated<string>;
-  credit_limit: Generated<number>;
   ctn_balance: Generated<number>;
   deleted_at: string | null;
   deleted_by: number | null;
@@ -118,7 +119,6 @@ export interface Customers {
   is_deleted: Generated<number>;
   name: string;
   phone: string | null;
-  route_id: number | null;
   shop_name: string | null;
   updated_at: Generated<string>;
 }
@@ -145,30 +145,6 @@ export interface Expenses {
   note: string | null;
   sale_id: number | null;
   van_assignment_id: number | null;
-}
-
-export interface InstallmentPlans {
-  created_at: Generated<string>;
-  frequency: string;
-  grace_period_days: Generated<number>;
-  id: Generated<number>;
-  late_fee_percent: Generated<number>;
-  num_installments: number;
-  sale_id: number;
-  total_amount: number;
-}
-
-export interface InstallmentSchedule {
-  amount_due: number;
-  amount_paid: Generated<number>;
-  due_date: string;
-  id: Generated<number>;
-  installment_no: number;
-  late_fee: Generated<number>;
-  late_fee_applied: Generated<number>;
-  payment_date: string | null;
-  plan_id: number;
-  status: Generated<string>;
 }
 
 export interface Items {
@@ -210,6 +186,15 @@ export interface Payments {
   party_type: string;
   reference_id: number | null;
   reference_type: string | null;
+}
+
+export interface PaymentAllocations {
+  id: Generated<number>;
+  payment_id: number;
+  reference_type: string;
+  reference_id: number;
+  amount: number;
+  created_at: Generated<string>;
 }
 
 export interface PurchaseItems {
@@ -307,6 +292,8 @@ export interface SaleReturns {
 
 export interface StockAdjustments {
   change_qty: number;
+  cost_price_snapshot: Generated<number>;
+  total_value: Generated<number>;
   created_at: Generated<string>;
   created_by: number | null;
   id: Generated<number>;
@@ -388,9 +375,8 @@ export interface DB {
   customers: Customers;
   expense_categories: ExpenseCategories;
   expenses: Expenses;
-  installment_plans: InstallmentPlans;
-  installment_schedule: InstallmentSchedule;
   items: Items;
+  payment_allocations: PaymentAllocations;
   payments: Payments;
   purchase_items: PurchaseItems;
   purchases: Purchases;

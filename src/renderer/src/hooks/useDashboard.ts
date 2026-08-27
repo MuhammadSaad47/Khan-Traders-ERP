@@ -20,3 +20,24 @@ export function useTopItems() {
     queryFn: async () => await window.api.dashboard.getTopItems()
   })
 }
+
+export function useExpenseBreakdown() {
+  return useQuery({
+    queryKey: ['dashboard', 'expense-breakdown'],
+    queryFn: async () => await window.api.dashboard.getExpenseBreakdown()
+  })
+}
+
+export function useRecentActivity() {
+  return useQuery({
+    queryKey: ['dashboard', 'recent-activity'],
+    queryFn: async () => await window.api.dashboard.getRecentActivity()
+  })
+}
+
+export function useOverdueBalances() {
+  return useQuery({
+    queryKey: ['dashboard', 'overdue-balances'],
+    queryFn: async () => await window.api.dashboard.getOverdueBalances()
+  })
+}

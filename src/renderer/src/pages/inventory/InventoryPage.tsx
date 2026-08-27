@@ -24,6 +24,17 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { InventoryAnalyticsDialog } from './InventoryAnalyticsDialog'
+import { BarChart3 } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Autocomplete } from '@/components/ui/autocomplete'
 
 export default function InventoryPage() {
   const { data: items = [], isLoading } = useItems()
@@ -34,8 +45,19 @@ export default function InventoryPage() {
   const { toast } = useToast()
   
   const [searchTerm, setSearchTerm] = useState('')
+  const [stockFilter, setStockFilter] = useState('all')
+  const [supplierFilter, setSupplierFilter] = useState('all')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
+  const [deleteItemConfirmOpen, setDeleteItemConfirmOpen] = useState(false)
+  const [itemToDelete, setItemToDelete] = useState<any>(null)
+  const [deleteCategoryConfirmOpen, setDeleteCategoryConfirmOpen] = useState(false)
+  const [categoryToDelete, setCategoryToDelete] = useState<any>(null)
+  const [analyticsOpen, setAnalyticsOpen] = useState(false)
+  
+  // Quick price edit state
+  const [editingPriceItemId, setEditingPriceItemId] = useState<number | null>(null)
+  const [newSellingPrice, setNewSellingPrice] = useState<string>('')
   
   // State for Comboboxes
   const [itemName, setItemName] = useState('')
@@ -43,6 +65,7 @@ export default function InventoryPage() {
   const [itemPackaging, setItemPackaging] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [supplierId, setSupplierId] = useState('')
+
 
   // Update combobox states when editing changes
   useEffect(() => {
@@ -52,12 +75,14 @@ export default function InventoryPage() {
       setItemPackaging(editingItem.packaging || '')
       setCategoryId(editingItem.category_id?.toString() || '')
       setSupplierId(editingItem.supplier_id?.toString() || '')
+
     } else {
       setItemName('')
       setItemSize('')
       setItemPackaging('')
       setCategoryId('')
       setSupplierId('')
+
     }
   }, [editingItem])
   
@@ -86,11 +111,23 @@ export default function InventoryPage() {
 
   const categoryOptions = categories.map((c: any) => ({ value: c.id.toString(), label: c.name }))
   const supplierOptions = suppliers.map((s: any) => ({ value: s.id.toString(), label: s.name }))
+  const inventorySupplierIds = new Set(items.filter((i: any) => i.supplier_id).map((i: any) => i.supplier_id))
+  const inventorySupplierOptions = suppliers.filter((s: any) => inventorySupplierIds.has(s.id)).map((s: any) => ({ value: s.id.toString(), label: s.name }))
 
-  const filteredItems = items.filter((item: any) => 
-    item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (item.barcode && item.barcode.includes(searchTerm))
-  )
+  const filteredItems = items.filter((item: any) => {
+    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      (item.barcode && item.barcode.includes(searchTerm));
+      
+    let matchesStock = true;
+    if (stockFilter === 'low') {
+      matchesStock = item.current_stock <= item.low_stock_threshold && item.current_stock > 0;
+    } else if (stockFilter === 'out') {
+      matchesStock = item.current_stock <= 0;
+    }
+    
+    const matchesSupplier = supplierFilter === 'all' || item.supplier_id?.toString() === supplierFilter;
+    return matchesSearch && matchesStock && matchesSupplier;
+  })
 
   const formatMoney = (paisa: number) => `Rs ${(paisa / 100).toFixed(0)}`
 
@@ -107,7 +144,7 @@ export default function InventoryPage() {
     e.preventDefault()
     const form = e.target as HTMLFormElement
     const name = (form.elements.namedItem('name') as HTMLInputElement).value
-    const variant = (form.elements.namedItem('variant') as HTMLInputElement).value
+    const variant = ''
     const size = (form.elements.namedItem('size') as HTMLInputElement).value
     const packaging = (form.elements.namedItem('packaging') as HTMLInputElement).value
     const barcode_input = (form.elements.namedItem('barcode') as HTMLInputElement).value
@@ -117,6 +154,7 @@ export default function InventoryPage() {
     const cost_price_input = (form.elements.namedItem('cost_price') as HTMLInputElement).value
     const low_stock_threshold_input = (form.elements.namedItem('low_stock_threshold') as HTMLInputElement).value
 
+    
     const selling_price = selling_price_input ? Math.round(parseFloat(selling_price_input) * 100) : 0
     const cost_price = cost_price_input ? Math.round(parseFloat(cost_price_input) * 100) : 0
     
@@ -146,7 +184,7 @@ export default function InventoryPage() {
         cost_price,
         supplier_id: final_supplier_id,
         category_id: final_category_id,
-        units_per_ctn: 1,
+
         low_stock_threshold
       }
 
@@ -161,12 +199,14 @@ export default function InventoryPage() {
       setItemPackaging('')
       setCategoryId('')
       setSupplierId('')
+
       setIsModalOpen(false)
       setEditingItem(null)
       toast({ title: 'Success', description: `Item ${editingItem ? 'updated' : 'created'} successfully` })
     } catch (error) {
       console.error('Failed to save item:', error)
-      toast({ title: 'Error', description: 'Failed to save item', variant: 'destructive' })
+      const msg = (error as any)?.message?.replace(/Error invoking remote method '.*?': Error: /, '') || 'Failed to save item'
+      toast({ title: 'Error', description: msg, variant: 'destructive' })
     }
   }
 
@@ -190,6 +230,65 @@ export default function InventoryPage() {
     }
   }
 
+  // Quick Price Edit Handlers
+  const handleStartPriceEdit = (item: any) => {
+    setEditingPriceItemId(item.id)
+    setNewSellingPrice((item.selling_price / 100).toFixed(2))
+  }
+
+  const handleCancelPriceEdit = () => {
+    setEditingPriceItemId(null)
+    setNewSellingPrice('')
+  }
+
+  const handleSavePriceEdit = async (item: any) => {
+    if (!newSellingPrice || parseFloat(newSellingPrice) <= 0) {
+      toast({ title: 'Error', description: 'Please enter a valid price', variant: 'destructive' })
+      return
+    }
+
+    try {
+      const selling_price = Math.round(parseFloat(newSellingPrice) * 100)
+      
+      await updateItem.mutateAsync({
+        id: item.id,
+        data: {
+          name: item.name,
+          variant: item.variant,
+          size: item.size,
+          packaging: item.packaging,
+          barcode: item.barcode,
+          selling_price,
+          cost_price: item.cost_price,
+          supplier_id: item.supplier_id,
+          category_id: item.category_id,
+
+          low_stock_threshold: item.low_stock_threshold
+        }
+      })
+
+      setEditingPriceItemId(null)
+      setNewSellingPrice('')
+      toast({ 
+        title: 'Price Updated', 
+        description: `${item.name} price updated to Rs ${(selling_price / 100).toFixed(0)}` 
+      })
+    } catch (error) {
+      console.error('Failed to update price:', error)
+      const msg = (error as any)?.message?.replace(/Error invoking remote method '.*?': Error: /, '') || 'Failed to update price'
+      toast({ title: 'Error', description: msg, variant: 'destructive' })
+    }
+  }
+
+  const handlePriceKeyDown = (e: React.KeyboardEvent, item: any) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleSavePriceEdit(item)
+    } else if (e.key === 'Escape') {
+      handleCancelPriceEdit()
+    }
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)] w-full p-4 sm:p-6 lg:p-8">
       <div className="flex items-center justify-between mb-6">
@@ -201,9 +300,33 @@ export default function InventoryPage() {
           <Button variant="outline" className="gap-2" onClick={() => setIsCategoryModalOpen(true)}>
             <FolderTree className="w-4 h-4" /> Manage Categories
           </Button>
-          <Button variant="outline" className="gap-2">
-            <Filter className="w-4 h-4" /> Filter
+          <Button variant="outline" className="gap-2" onClick={() => setAnalyticsOpen(true)}>
+            <BarChart3 className="w-4 h-4" /> Sales Performance
           </Button>
+          <Select value={stockFilter} onValueChange={setStockFilter}>
+            
+            <SelectTrigger className="w-[160px] bg-background border-input gap-2">
+              <Filter className="w-4 h-4 text-muted-foreground" />
+              <SelectValue placeholder="Filter Stock" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Items</SelectItem>
+              <SelectItem value="low">Low Stock</SelectItem>
+              <SelectItem value="out">Out of Stock</SelectItem>
+            </SelectContent>
+          
+          </Select>
+          <Select value={supplierFilter} onValueChange={setSupplierFilter}>
+            <SelectTrigger className="w-[180px] bg-background border-primary/20 hover:border-primary/50 transition-colors h-11">
+              <SelectValue placeholder="Filter by Supplier" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Suppliers</SelectItem>
+              {inventorySupplierOptions.map((s: any) => (
+                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button onClick={() => handleOpenModal(null)} className="gap-2 bg-primary hover:bg-primary/90">
             <Plus className="w-4 h-4" /> New Item
           </Button>
@@ -231,9 +354,9 @@ export default function InventoryPage() {
                 <TableHead>Category</TableHead>
                 <TableHead>Supplier</TableHead>
                 <TableHead>Barcode</TableHead>
-                {isManager && <TableHead className="text-right">Cost Price</TableHead>}
-                <TableHead className="text-right">Selling Price</TableHead>
-                <TableHead className="text-right">Stock</TableHead>
+                {isManager && <TableHead className="text-right">Cost/Ctn</TableHead>}
+                <TableHead className="text-right">Sell/Ctn</TableHead>
+                <TableHead className="text-right">Stock (Ctns)</TableHead>
                 <TableHead className="text-right w-[100px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -274,11 +397,44 @@ export default function InventoryPage() {
                     <TableCell className="font-mono text-muted-foreground text-sm">{item.barcode || '-'}</TableCell>
                     {isManager && <TableCell className="text-right tabular-nums">{formatMoney(item.cost_price)}</TableCell>}
                     <TableCell className="text-right tabular-nums font-medium">
-                      {formatMoney(item.selling_price)}
+                      {editingPriceItemId === item.id ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <span className="text-xs text-muted-foreground line-through">
+                            Rs {(item.selling_price / 100).toFixed(0)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">→</span>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={newSellingPrice}
+                            onChange={(e) => setNewSellingPrice(e.target.value)}
+                            onKeyDown={(e) => handlePriceKeyDown(e, item)}
+                            onBlur={() => handleSavePriceEdit(item)}
+                            autoFocus
+                            className="w-24 h-8 text-right"
+                          />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0"
+                            onClick={() => handleCancelPriceEdit()}
+                          >
+                            ✕
+                          </Button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleStartPriceEdit(item)}
+                          className="hover:bg-muted/50 px-2 py-1 rounded transition-colors cursor-pointer"
+                          title="Double-click to edit price"
+                        >
+                          {formatMoney(item.selling_price)}
+                        </button>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <Badge variant={item.current_stock <= 0 ? 'destructive' : item.current_stock <= item.low_stock_threshold ? 'warning' : 'secondary'}>
-                        {item.current_stock}
+                        {item.current_stock} Ctns
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
@@ -287,7 +443,10 @@ export default function InventoryPage() {
                           <Pencil className="w-4 h-4 text-muted-foreground" />
                         </Button>
                         {isManager && (
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => { if(window.confirm(`Delete item "${item.name}"?`)) deleteItem.mutate(item.id) }}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => { 
+                            setItemToDelete(item)
+                            setDeleteItemConfirmOpen(true) 
+                          }}>
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         )}
@@ -302,7 +461,7 @@ export default function InventoryPage() {
       </div>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingItem ? 'Edit Item' : 'Create New Item'}</DialogTitle>
           </DialogHeader>
@@ -310,8 +469,14 @@ export default function InventoryPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Name</label>
-                <input type="hidden" name="name" value={itemName} />
-                <Combobox options={itemOptions} value={itemName} onChange={setItemName} placeholder="e.g. Coca Cola" />
+                <Autocomplete 
+                  name="name"
+                  options={itemOptions}
+                  value={itemName} 
+                  onChange={setItemName}
+                  placeholder="e.g. Coca Cola" 
+                  required 
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Category (Optional)</label>
@@ -323,20 +488,26 @@ export default function InventoryPage() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Packaging</label>
-                <input type="hidden" name="packaging" value={itemPackaging} />
-                <Combobox options={packagingOptions} value={itemPackaging} onChange={setItemPackaging} placeholder="e.g. PET" />
+                <Autocomplete 
+                  name="packaging"
+                  options={packagingOptions}
+                  value={itemPackaging} 
+                  onChange={setItemPackaging}
+                  placeholder="e.g. PET" 
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Size</label>
-                <input type="hidden" name="size" value={itemSize} />
-                <Combobox options={sizeOptions} value={itemSize} onChange={setItemSize} placeholder="e.g. 1.5L" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Flavor / Variant</label>
-                <Input name="variant" defaultValue={editingItem?.variant || ''} placeholder="e.g. Orange" />
+                <Autocomplete 
+                  name="size"
+                  options={sizeOptions}
+                  value={itemSize} 
+                  onChange={setItemSize}
+                  placeholder="e.g. 1.5L" 
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4 border-t pt-4">
@@ -371,6 +542,8 @@ export default function InventoryPage() {
                 <label className="text-sm font-medium">Low Stock Alert (Ctns)</label>
                 <Input name="low_stock_threshold" type="number" min="0" defaultValue={editingItem?.low_stock_threshold || 10} required />
               </div>
+              <div className="space-y-2">
+              </div>
             </div>
             <DialogFooter className="pt-4">
               <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
@@ -381,7 +554,7 @@ export default function InventoryPage() {
       </Dialog>
 
       <Dialog open={isCategoryModalOpen} onOpenChange={setIsCategoryModalOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Manage Categories</DialogTitle>
           </DialogHeader>
@@ -412,7 +585,10 @@ export default function InventoryPage() {
                     <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingCategory(c)}>
                       <Pencil className="w-3 h-3" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => { if(confirm('Delete category?')) deleteCategory.mutate(c.id) }}>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => { 
+                      setCategoryToDelete(c)
+                      setDeleteCategoryConfirmOpen(true) 
+                    }}>
                       <Trash2 className="w-3 h-3" />
                     </Button>
                   </div>
@@ -423,6 +599,46 @@ export default function InventoryPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog 
+        open={deleteItemConfirmOpen} 
+        onOpenChange={setDeleteItemConfirmOpen}
+        title="Delete Item"
+        description={`Are you sure you want to delete "${itemToDelete?.name}"? This action cannot be undone.`}
+        confirmText="Delete"
+        destructive={true}
+        onConfirm={() => {
+          if (itemToDelete?.id) {
+            deleteItem.mutate(itemToDelete.id, {
+              onSuccess: () => {
+                setDeleteItemConfirmOpen(false)
+                setItemToDelete(null)
+              }
+            })
+          }
+        }}
+      />
+
+      <ConfirmDialog 
+        open={deleteCategoryConfirmOpen} 
+        onOpenChange={setDeleteCategoryConfirmOpen}
+        title="Delete Category"
+        description={`Are you sure you want to delete "${categoryToDelete?.name}"? Items linked to this category will become Uncategorized.`}
+        confirmText="Delete"
+        destructive={true}
+        onConfirm={() => {
+          if (categoryToDelete?.id) {
+            deleteCategory.mutate(categoryToDelete.id, {
+              onSuccess: () => {
+                setDeleteCategoryConfirmOpen(false)
+                setCategoryToDelete(null)
+              }
+            })
+          }
+        }}
+      />
+
+      <InventoryAnalyticsDialog open={analyticsOpen} onOpenChange={setAnalyticsOpen} />
     </div>
   )
 }

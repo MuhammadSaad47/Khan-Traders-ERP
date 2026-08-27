@@ -25,7 +25,10 @@ export default function AdjustmentsPage() {
   })
 
   const handleSubmit = async () => {
-    if (!formData.item_id || !formData.change_qty || !formData.reason) return
+    if (!formData.item_id || !formData.change_qty || !formData.reason) {
+      toast({ title: 'Validation Error', description: 'Please fill in all required fields.', variant: 'destructive' })
+      return
+    }
     try {
       await createAdjustment.mutateAsync({
         item_id: Number(formData.item_id),
@@ -61,6 +64,7 @@ export default function AdjustmentsPage() {
               <TableHead>Date</TableHead>
               <TableHead>Item</TableHead>
               <TableHead>Adjustment</TableHead>
+              <TableHead>Value (Rs)</TableHead>
               <TableHead>Reason</TableHead>
               <TableHead>Note</TableHead>
               <TableHead>By</TableHead>
@@ -86,6 +90,9 @@ export default function AdjustmentsPage() {
                       {adj.change_qty > 0 ? '+' : ''}{adj.change_qty}
                     </span>
                   </TableCell>
+                  <TableCell className="text-muted-foreground tabular-nums">
+                    {((adj.total_value || 0) / 100).toFixed(2)}
+                  </TableCell>
                   <TableCell>
                     <span className="capitalize px-2 py-1 bg-muted rounded-md text-xs">{adj.reason}</span>
                   </TableCell>
@@ -99,7 +106,7 @@ export default function AdjustmentsPage() {
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Adjust Inventory Stock</DialogTitle>
           </DialogHeader>

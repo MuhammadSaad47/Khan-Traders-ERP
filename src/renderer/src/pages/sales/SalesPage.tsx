@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, FileText, Printer, Trash2, Download } from 'lucide-react'
+import { Search, FileText, Printer, Trash2, Download, CalendarIcon } from 'lucide-react'
+import { format, subDays } from 'date-fns'
 import html2pdf from 'html2pdf.js'
 import logo from '../../assets/logo_color.png'
 import { useSales, useSaleDetails, usePrintReceipt, useVoidSale, useSaleReturns } from '../../hooks/useSales'
@@ -20,14 +21,26 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { numberToWords } from '../../lib/numberToWords'
 import Barcode from 'react-barcode'
 import { SaleReturnDialog } from './SaleReturnDialog'
 import { RefreshCcw } from 'lucide-react'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 export default function SalesPage() {
   const navigate = useNavigate()
-  const { data: sales = [], isLoading } = useSales()
+  const [dateRange, setDateRange] = useState({ 
+    from: format(subDays(new Date(), 30), 'yyyy-MM-dd'), 
+    to: format(new Date(), 'yyyy-MM-dd') 
+  })
+  const { data: sales = [], isLoading } = useSales(1, 500, { fromDate: dateRange.from, toDate: dateRange.to })
   const { data: customers = [] } = useCustomers()
   const printReceipt = usePrintReceipt()
   const voidSale = useVoidSale()
@@ -35,22 +48,45 @@ export default function SalesPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null)
   const [returnDialogOpen, setReturnDialogOpen] = useState(false)
+  const [voidConfirmOpen, setVoidConfirmOpen] = useState(false)
+  const [customerFilter, setCustomerFilter] = useState('all')
 
   const { data: saleDetails, isLoading: isLoadingDetails } = useSaleDetails(selectedSaleId)
   const { data: returns = [] } = useSaleReturns(selectedSaleId || 0)
 
-  const filteredSales = sales.filter((s: any) => 
-    s.invoice_no.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const filteredSales = sales.filter((s: any) => {
+    const matchesSearch = s.invoice_no.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesCustomer = customerFilter === 'all' || s.customer_id?.toString() === customerFilter
+    return matchesSearch && matchesCustomer
+  })
+
+  // Group identically named items that were split by FIFO engine back into a single UI representation
+  const groupedSaleItems = useMemo(() => {
+    if (!saleDetails?.items) return []
+    const groups = saleDetails.items.reduce((acc: any, item: any) => {
+      const key = `${item.item_name}-${item.item_size}-${item.item_packaging}-${item.item_variant}-${item.unit_price}`
+      if (!acc[key]) {
+        acc[key] = { ...item, original_items: [] }
+      } else {
+        acc[key].qty += item.qty
+        acc[key].line_total += item.line_total
+      }
+      acc[key].original_items.push({ id: item.id, qty: item.qty })
+      return acc
+    }, {})
+    return Object.values(groups) as any[]
+  }, [saleDetails?.items])
 
   const formatMoney = (paisa: number) => `Rs ${(paisa / 100).toFixed(0)}`
 
   const handlePrint = (sale: any, items: any[]) => {
-    const customer = customers.find((c: any) => c.id === sale.customer_id)
     printReceipt.mutate({
       invoiceNo: sale.invoice_no,
-      customerName: customer?.name,
-      items: items.map(i => ({ name: `Item #${i.item_id}`, qty: i.qty, price: i.unit_price, lineTotal: i.line_total })), // In a real app, we'd join items table to get real names in getSaleDetails
+      customerName: sale.customer_name,
+      items: items.map(i => {
+        const nameParts = [i.item_name || `Item #${i.item_id}`, i.item_size, i.item_packaging, i.item_variant].filter(Boolean)
+        return { name: nameParts.join(' '), qty: i.qty, price: i.unit_price, lineTotal: i.line_total }
+      }),
       subtotal: sale.subtotal,
       discount: sale.discount,
       netTotal: sale.net_total,
@@ -86,8 +122,8 @@ export default function SalesPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4 bg-surface p-4 rounded-xl border shadow-sm mb-6">
-          <div className="relative flex-1">
+        <div className="flex flex-wrap items-center gap-4 bg-surface p-4 rounded-xl border shadow-sm mb-6">
+          <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input 
               placeholder="Search by Invoice No..." 
@@ -96,6 +132,35 @@ export default function SalesPage() {
               className="pl-9 bg-background/50 border-0 shadow-none ring-1 ring-inset ring-border/50 focus-visible:ring-2 focus-visible:ring-primary"
             />
           </div>
+
+          <div className="flex items-center gap-2 bg-background/50 p-1.5 rounded-lg border shadow-sm text-sm">
+            <CalendarIcon className="w-4 h-4 text-muted-foreground ml-2" />
+            <input 
+              type="date" 
+              className="bg-transparent focus:outline-none border-none text-muted-foreground cursor-pointer"
+              value={dateRange.from}
+              onChange={(e) => setDateRange(prev => ({ ...prev, from: e.target.value }))}
+            />
+            <span className="text-muted-foreground">to</span>
+            <input 
+              type="date" 
+              className="bg-transparent focus:outline-none border-none text-muted-foreground cursor-pointer mr-1"
+              value={dateRange.to}
+              onChange={(e) => setDateRange(prev => ({ ...prev, to: e.target.value }))}
+            />
+          </div>
+
+          <Select value={customerFilter} onValueChange={setCustomerFilter}>
+            <SelectTrigger className="w-[180px] bg-background border-primary/20 hover:border-primary/50 transition-colors h-10">
+              <SelectValue placeholder="Filter by Customer" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Customers</SelectItem>
+              {customers.map((c: any) => (
+                <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="rounded-xl border bg-surface shadow-sm overflow-hidden flex-1 flex flex-col">
@@ -107,6 +172,7 @@ export default function SalesPage() {
                   <TableHead>Invoice No</TableHead>
                   <TableHead>Customer</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Total Ctns</TableHead>
                   <TableHead className="text-right">Net Total</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
@@ -129,7 +195,6 @@ export default function SalesPage() {
                   </TableRow>
                 ) : (
                   filteredSales.map((sale: any) => {
-                    const customer = customers.find((c: any) => c.id === sale.customer_id)
                     return (
                       <TableRow 
                         key={sale.id} 
@@ -143,12 +208,20 @@ export default function SalesPage() {
                           {sale.invoice_no}
                         </TableCell>
                         <TableCell>
-                          {customer ? customer.name : 'Walk-in'}
+                          {sale.sale_type === 'van' ? (
+                            <span className="flex items-center gap-2">
+                              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded font-semibold">Van</span>
+                              {sale.van_salesman_name}
+                            </span>
+                          ) : sale.customer_name ? sale.customer_name : 'Walk-in'}
                         </TableCell>
                         <TableCell>
                           <Badge variant={sale.status === 'paid' ? 'success' : sale.status === 'partial' ? 'warning' : 'destructive'}>
                             {sale.status.toUpperCase()}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {sale.total_ctns}
                         </TableCell>
                         <TableCell className="text-right tabular-nums font-bold">
                           {formatMoney(sale.net_total)}
@@ -190,11 +263,7 @@ export default function SalesPage() {
                     Process Return
                   </Button>
                   <Button variant="outline" className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20" onClick={() => {
-                    if (confirm('Are you sure you want to void this sale? This will revert stock and financial records. This action cannot be undone.')) {
-                      voidSale.mutate(saleDetails.sale.id, {
-                        onSuccess: () => setSelectedSaleId(null)
-                      })
-                    }
+                    setVoidConfirmOpen(true)
                   }} disabled={voidSale.isPending}>
                     <Trash2 className="w-4 h-4 mr-2" />
                     {voidSale.isPending ? 'Voiding...' : 'Void Sale'}
@@ -203,11 +272,30 @@ export default function SalesPage() {
                   <Button variant="outline" onClick={handleDownloadPDF} className="gap-2">
                     <Download className="w-4 h-4" /> Download PDF
                   </Button>
-                  <Button onClick={() => handlePrint(saleDetails.sale, saleDetails.items)} className="gap-2">
+                  <Button onClick={() => handlePrint(saleDetails.sale, groupedSaleItems)} className="gap-2">
                     <Printer className="w-4 h-4" /> Print Receipt
                   </Button>
                 </div>
               </div>
+              
+              <ConfirmDialog 
+                open={voidConfirmOpen} 
+                onOpenChange={setVoidConfirmOpen}
+                title="Void Sale"
+                description="Are you sure you want to void this sale? This will revert stock and financial records. This action cannot be undone."
+                confirmText="Void Sale"
+                destructive={true}
+                onConfirm={() => {
+                  if (saleDetails?.sale?.id) {
+                    voidSale.mutate(saleDetails.sale.id, {
+                      onSuccess: () => {
+                        setVoidConfirmOpen(false)
+                        setSelectedSaleId(null)
+                      }
+                    })
+                  }
+                }}
+              />
               
               {/* Printable Invoice Area */}
               <div id="sale-invoice-content" className="flex-1 overflow-y-auto p-6 md:p-10 bg-white text-black font-sans relative">
@@ -238,7 +326,7 @@ export default function SalesPage() {
                     <div className="flex justify-between mb-8">
                       <div>
                         <h3 className="font-bold text-sm mb-1 text-gray-800">Bill To</h3>
-                        <p className="font-bold text-lg text-gray-900">{activeCustomer ? activeCustomer.name : 'Walk-in Customer'}</p>
+                        <p className="font-bold text-lg text-gray-900">{saleDetails.sale.customer_name ? saleDetails.sale.customer_name : 'Walk-in Customer'}</p>
                         {activeCustomer?.phone && <p className="text-sm text-gray-700">Contact No.: {activeCustomer.phone}</p>}
                       </div>
                       <div className="text-right">
@@ -262,12 +350,13 @@ export default function SalesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {saleDetails.items.map((item: any, idx: number) => {
+                    {groupedSaleItems.map((item: any, idx: number) => {
                        const itemName = item.item_name || `Item #${item.item_id}`;
+                       const sizeInfo = item.item_size ? ` ${item.item_size}` : '';
+                       const packagingInfo = item.item_packaging ? ` ${item.item_packaging}` : '';
                        const variant = item.item_variant ? ` - ${item.item_variant}` : '';
-                       const packing = item.units_per_ctn ? ` (${item.units_per_ctn})` : '';
-                       const fullName = `${itemName}${variant}${packing}`;
-                       const unit = item.units_per_ctn && item.units_per_ctn > 1 ? 'Ctn' : 'Pcs';
+                       const fullName = `${itemName}${sizeInfo}${packagingInfo}${variant}`;
+                       const unit = 'Ctn';
 
                        return (
                         <tr key={idx} className="border-b border-gray-200 hover:bg-gray-50/50">
@@ -282,7 +371,7 @@ export default function SalesPage() {
                     })}
                     <tr className="font-bold border-b-[3px] border-gray-800">
                       <td colSpan={2} className="py-2 px-3 text-center text-gray-800">Total</td>
-                      <td className="py-2 px-3 text-center text-gray-900">{saleDetails.items.reduce((acc: number, curr: any) => acc + curr.qty, 0)}</td>
+                      <td className="py-2 px-3 text-center text-gray-900">{groupedSaleItems.reduce((acc: number, curr: any) => acc + curr.qty, 0)}</td>
                       <td colSpan={2}></td>
                       <td className="py-2 px-3 text-right text-gray-900">{formatMoney(saleDetails.sale.subtotal)}</td>
                     </tr>
@@ -354,6 +443,7 @@ export default function SalesPage() {
                             <div>
                               <span className="font-bold text-gray-800">{ret.return_no}</span>
                               <span className="text-xs text-gray-500 ml-3">{new Date(ret.date).toLocaleString()}</span>
+                              {ret.processed_by && <span className="text-xs text-gray-400 ml-2">by {ret.processed_by}</span>}
                             </div>
                             <div className="text-right">
                               <span className="font-bold text-lg text-gray-900">{formatMoney(ret.total_amount)}</span>
@@ -363,6 +453,7 @@ export default function SalesPage() {
                             <thead>
                               <tr className="text-gray-500 border-b">
                                 <th className="text-left pb-2 font-medium">Item</th>
+                                <th className="text-left pb-2 font-medium">Size/Pkg</th>
                                 <th className="text-center pb-2 font-medium">Qty</th>
                                 <th className="text-right pb-2 font-medium">Unit Price</th>
                                 <th className="text-right pb-2 font-medium">Total</th>
@@ -372,6 +463,7 @@ export default function SalesPage() {
                               {ret.items.map((item: any) => (
                                 <tr key={item.id} className="border-b border-gray-100 last:border-0">
                                   <td className="py-2 text-gray-700">{item.item_name}</td>
+                                  <td className="py-2 text-gray-500 text-xs">{[item.item_size, item.item_packaging].filter(Boolean).join(' • ') || '-'}</td>
                                   <td className="py-2 text-center text-gray-700">{item.qty}</td>
                                   <td className="py-2 text-right text-gray-700">{formatMoney(item.unit_price)}</td>
                                   <td className="py-2 text-right font-medium text-gray-800">{formatMoney(item.line_total)}</td>
@@ -379,9 +471,12 @@ export default function SalesPage() {
                               ))}
                             </tbody>
                           </table>
-                          <div className="mt-3 pt-3 border-t flex justify-end gap-6 text-sm">
-                            <span className="text-gray-600">Refund: <strong className="text-gray-900">{formatMoney(ret.refund_amount)}</strong></span>
-                            <span className="text-gray-600">Credit: <strong className="text-gray-900">{formatMoney(ret.credit_amount)}</strong></span>
+                          <div className="mt-3 pt-3 border-t flex justify-between items-center">
+                            <div className="flex gap-6 text-sm">
+                              <span className="text-gray-600">Refund: <strong className="text-red-600">{formatMoney(ret.refund_amount)}</strong></span>
+                              <span className="text-gray-600">Credit: <strong className="text-blue-600">{formatMoney(ret.credit_amount)}</strong></span>
+                            </div>
+                            {ret.note && <div className="text-xs text-gray-500 italic bg-white px-2 py-1 rounded">{ret.note}</div>}
                           </div>
                         </div>
                       ))}
@@ -397,7 +492,7 @@ export default function SalesPage() {
         open={returnDialogOpen} 
         onOpenChange={setReturnDialogOpen}
         sale={saleDetails?.sale}
-        items={saleDetails?.items || []}
+        items={groupedSaleItems}
       />
     </div>
   )

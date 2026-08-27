@@ -1,8 +1,9 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, powerMonitor, Menu } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { runMigrations } from './db/migrate'
+import { checkpointAndClose } from './db/connection'
 import { registerAuthIPC } from './ipc/auth.ipc'
 import { registerCatalogIpc } from './ipc/catalog.ipc'
 import { registerPartiesIpc } from './ipc/parties.ipc'
@@ -10,7 +11,6 @@ import { registerSalesIpc } from './ipc/sales.ipc'
 import { registerPurchasesIpc } from './ipc/purchases.ipc'
 import { registerPaymentsIpc } from './ipc/payments.ipc'
 import { registerAccountsIpc } from './ipc/accounts.ipc'
-import { registerInstallmentsIpc } from './ipc/installments.ipc'
 import { registerDashboardIpc } from './ipc/dashboard.ipc'
 import { registerReportsIpc } from './ipc/reports.ipc'
 import { registerVanSalesIpc } from './ipc/van_sales.ipc'
@@ -36,14 +36,22 @@ process.on('unhandledRejection', (reason, promise) => {
 })
 
 function createWindow(): BrowserWindow {
+  // Remove default Electron menu on all platforms (prevents Alt-key flash on Windows)
+  Menu.setApplicationMenu(null)
+
   const mainWindow = new BrowserWindow({
-    width: 1200,
+    width: 1280,
     height: 800,
+    minWidth: 1024,
+    minHeight: 650,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    // Set icon on Linux and Windows (macOS reads from the app bundle automatically)
+    ...(process.platform !== 'darwin' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
       sandbox: false
     }
   })
@@ -77,7 +85,6 @@ registerSalesIpc()
 registerPurchasesIpc()
 registerPaymentsIpc()
 registerAccountsIpc()
-registerInstallmentsIpc()
 registerDashboardIpc()
 registerReportsIpc()
 registerVanSalesIpc()
@@ -86,6 +93,11 @@ registerAuditIpc()
 registerExpensesIpc()
 registerAdjustmentsIpc()
 registerBackupIPC()
+
+// Shell operations (open folder, file, URL)
+ipcMain.handle('shell:openPath', async (_, path: string) => {
+  return await shell.openPath(path)
+})
 
 function createSplashWindow(): BrowserWindow {
   const splash = new BrowserWindow({
@@ -116,14 +128,41 @@ if (process.platform === 'linux') {
   app.commandLine.appendSwitch('no-sandbox')
 }
 
+// NOTE: Removed force-device-scale-factor and high-dpi-support flags.
+// They conflicted with the app's zoom system (CSS zoom), causing Chromium
+// hit-testing mismatches that made input fields stop accepting keyboard input.
+
 app.whenReady().then(async () => {
-  electronApp.setAppUserModelId('com.electron')
+  // Must match appId in electron-builder.yml for Windows taskbar grouping
+  electronApp.setAppUserModelId('com.khantraders.management')
+  
+  // Remove default menu to prevent Alt key flashing on Windows
+  const { Menu } = require('electron')
+  Menu.setApplicationMenu(null)
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
   ipcMain.on('ping', () => console.log('pong'))
+
+  // SECURITY: Clear session on system lock/sleep
+  // This requires re-login when user returns from lock screen
+  powerMonitor.on('lock-screen', () => {
+    console.log('System locked - clearing user session')
+    const allWindows = BrowserWindow.getAllWindows()
+    allWindows.forEach(window => {
+      window.webContents.send('system-locked')
+    })
+  })
+
+  powerMonitor.on('suspend', () => {
+    console.log('System suspending - clearing user session')
+    const allWindows = BrowserWindow.getAllWindows()
+    allWindows.forEach(window => {
+      window.webContents.send('system-locked')
+    })
+  })
 
   if (process.env.NODE_ENV === 'test_e2e' || process.env.E2E_TEST === 'true') {
     runMigrations()
@@ -192,6 +231,15 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
+  }
+})
+
+// Graceful shutdown: checkpoint WAL before quitting
+app.on('before-quit', () => {
+  try {
+    checkpointAndClose()
+  } catch (error) {
+    console.error('Error during shutdown cleanup:', error)
   }
 })
 

@@ -1,7 +1,10 @@
-appId: com.electron.app
-productName: khan-trader
+appId: com.khantraders.management
+productName: Khan Traders
+copyright: Copyright © 2025 Saad Afridi
 directories:
   buildResources: build
+
+# Files to include in the asar package
 files:
   - '!**/.vscode/*'
   - '!src/*'
@@ -9,16 +12,53 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!*.md'
+  - '!fix-*.js'
+  - '!fix-*.ts'
+  - '!check_db.ts'
+  - '!clean-db-for-production.js'
+
+# Extra resources copied outside the asar into the resources/ folder
+# These are accessible at runtime via process.resourcesPath
+extraResources:
+  - from: migrations
+    to: migrations
+    filter:
+      - '**/*.sql'
+
+# Unpack native modules and app resources from asar so they work on all platforms
 asarUnpack:
   - resources/**
+  - node_modules/better-sqlite3/**
+
 win:
   executableName: khan-trader
+  icon: build/icon.ico
+  target:
+    - nsis
+  verifyUpdateCodeSignature: false
+  signtoolOptions:
+    publisherName:
+      - Saad Afridi
+
 nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  createStartMenuShortcut: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  license: null
+  perMachine: true
+  allowElevation: true
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+
 mac:
+  category: public.app-category.business
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
@@ -26,18 +66,21 @@ mac:
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   notarize: false
+
 dmg:
   artifactName: ${name}-${version}.${ext}
+
 linux:
   target:
     - AppImage
-    - snap
     - deb
-  maintainer: electronjs.org
-  category: Utility
+  maintainer: Saad Afridi <saad@khantraders.com>
+  vendor: Saad Afridi
+  category: Office
+
 appImage:
   artifactName: ${name}-${version}.${ext}
+
 npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
+compression: normal
+removePackageScripts: true

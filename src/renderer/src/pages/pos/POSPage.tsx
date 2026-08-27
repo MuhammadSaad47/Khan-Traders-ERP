@@ -1,8 +1,9 @@
+import { format } from 'date-fns'
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Search, ShoppingCart, Trash2, Printer, CheckCircle, Package, XCircle } from 'lucide-react'
 import { ThermalReceipt } from '../../components/ThermalReceipt'
-import { useItems } from '../../hooks/useCatalog'
+import { useItemsGrouped, useUpdateItem } from '../../hooks/useCatalog'
 import { useCustomers, useCreateCustomer } from '../../hooks/useParties'
 import { useActiveAssignments } from '../../hooks/useVans'
 import { useCartStore } from '../../stores/cart.store'
@@ -31,12 +32,13 @@ export default function POSPage() {
   const queryParams = new URLSearchParams(location.search)
   const editSaleId = queryParams.get('editSaleId') ? Number(queryParams.get('editSaleId')) : null
 
-  const { data: items = [] } = useItems()
+  const { data: items = [] } = useItemsGrouped()
   const { data: customers = [] } = useCustomers()
   const { data: activeVans = [] } = useActiveAssignments()
   const cart = useCartStore()
   const createSale = useCreateSale()
   const updateSaleMutation = useUpdateSale()
+  const updateItemMutation = useUpdateItem()
   const printReceipt = usePrintReceipt()
   const createCustomer = useCreateCustomer()
   const { data: accounts = [] } = useAccounts()
@@ -63,8 +65,12 @@ export default function POSPage() {
       cart.setCustomer(editSaleData.sale.customer_id)
       cart.setDiscount(editSaleData.sale.discount)
       cart.setPaidAmount(editSaleData.sale.paid_amount)
-      setCtnsReturned(editSaleData.sale.ctns_returned || 0)
+
       setSelectedVanId(editSaleData.sale.van_assignment_id || null)
+      // Load the original sale date when editing
+      if (editSaleData.sale.date) {
+        setSaleDate(format(new Date(editSaleData.sale.date), 'yyyy-MM-dd'))
+      }
       setHasLoadedEdit(true)
     }
   }, [editSaleId, editSaleData, hasLoadedEdit, cart])
@@ -77,11 +83,11 @@ export default function POSPage() {
   // Print preview state
   const [previewOpen, setPreviewOpen] = useState(false)
   const [paperSize, setPaperSize] = useState<58 | 80>(80)
-  const [ctnsReturned, setCtnsReturned] = useState<number>(0)
+
   const [overheads, setOverheads] = useState<{category_id: number | string, amount: number, account_id: number | ''}[]>([])
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'cash' | 'easypaisa' | 'bank' | 'other'>('cash')
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null)
-  const [saleDate, setSaleDate] = useState<string>(new Date().toISOString().split('T')[0])
+  const [saleDate, setSaleDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
 
   // Auto-select first account when accounts load
   useEffect(() => {
@@ -194,6 +200,30 @@ export default function POSPage() {
   })
 
   const handleItemClick = (item: any) => {
+    // Check if item is out of stock
+    const stock = item.combined_stock || item.current_stock
+    if (stock <= 0) {
+      toast({ 
+        title: 'Out of Stock', 
+        description: `${item.name} is out of stock and cannot be added.`,
+        variant: 'destructive'
+      })
+      return
+    }
+    
+    // Check how many of this item are already in cart
+    const cartQty = cart.items.find(ci => ci.item_id === item.id)?.qty || 0
+    const availableQty = stock - cartQty
+    
+    if (availableQty <= 0) {
+      toast({ 
+        title: 'Insufficient Stock', 
+        description: `Only ${cartQty} ${item.name} can be added (warehouse has ${stock} available).`,
+        variant: 'destructive'
+      })
+      return
+    }
+    
     cart.addItem(item)
     setSearchTerm('')
     searchInputRef.current?.focus()
@@ -216,6 +246,11 @@ export default function POSPage() {
 
   const subtotal = cart.items.reduce((acc, i) => acc + i.line_total, 0)
   const netTotal = subtotal - cart.discount
+
+  const totalCartCtns = cart.items.reduce((acc, i) => acc + (i.qty || 0), 0)
+  const totalInventoryCtns = useMemo(() => {
+    return items.reduce((acc: number, i: any) => acc + (i.combined_stock || i.current_stock || 0), 0)
+  }, [items])
 
   const executeCheckout = async (widthSize: 58 | 80) => {
     if (cart.items.length === 0) return
@@ -241,13 +276,14 @@ export default function POSPage() {
         account_id: cart.paid_amount > 0 ? selectedAccountId : undefined, 
         sale_type: selectedVanId ? 'van' : cart.sale_type,
         van_assignment_id: selectedVanId || undefined,
-        ctns_returned: ctnsReturned,
-        date: saleDate ? new Date(saleDate).toISOString() : undefined,
+
+        date: saleDate ? saleDate + 'T12:00:00.000Z' : undefined,
         items: cart.items,
         overheads: overheads.filter(oh => oh.category_id && oh.amount > 0 && oh.account_id).map(oh => ({
           category_id: typeof oh.category_id === 'string' && !isNaN(Number(oh.category_id)) ? Number(oh.category_id) : oh.category_id,
           amount: oh.amount * 100,
-          account_id: Number(oh.account_id)
+          account_id: Number(oh.account_id),
+          date: saleDate ? saleDate + 'T12:00:00.000Z' : new Date().toISOString()
         }))
       }
 
@@ -275,7 +311,7 @@ export default function POSPage() {
       setPreviewOpen(false)
       cart.clearCart()
       setSearchTerm('')
-      setCtnsReturned(0)
+
       setOverheads([])
       
       if (editSaleId) {
@@ -312,6 +348,10 @@ export default function POSPage() {
                 }
               }}
             />
+          </div>
+          <div className="hidden sm:flex flex-col items-center justify-center bg-surface border border-border/60 rounded-lg px-4 h-12 shadow-[0_2px_10px_-3px_rgba(0,0,0,0.1)] cursor-default">
+             <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider leading-tight">Total Inventory</span>
+             <span className="font-extrabold text-sm leading-tight text-primary">{totalInventoryCtns.toLocaleString()} Ctns</span>
           </div>
         </div>
 
@@ -354,7 +394,8 @@ export default function POSPage() {
         <div className="flex-1 overflow-y-auto">
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 pb-20">
             {filteredItems.map((item: any) => {
-              const isOut = item.current_stock <= 0
+              const stock = item.combined_stock || item.current_stock
+              const isOut = stock <= 0
               return (
                 <button
                   key={item.id}
@@ -362,15 +403,17 @@ export default function POSPage() {
                   className={`flex flex-col text-left p-3 rounded-xl border bg-surface hover:border-primary transition-all active:scale-95 ${isOut ? 'opacity-50' : 'shadow-sm'}`}
                 >
                   <div className="font-semibold truncate w-full">{item.name}</div>
-                  <div className="text-sm text-muted-foreground truncate w-full">{item.variant || 'Standard'}</div>
+                  <div className="text-sm text-muted-foreground truncate w-full">
+                    {[item.variant, item.size, item.packaging].filter(Boolean).join(' • ') || 'Standard'}
+                  </div>
                   <div className="mt-auto pt-3 flex flex-col gap-1 w-full">
                     <div className="flex justify-between w-full items-end">
                       <div className="text-right text-sm font-semibold tabular-nums">
                         {formatMoney(item.selling_price)}
                       </div>
                       <div className="text-right text-xs mt-1">
-                        <Badge variant={item.current_stock <= 0 ? 'destructive' : item.current_stock <= item.low_stock_threshold ? 'warning' : 'secondary'} className="text-[10px] px-1.5 py-0">
-                          {item.current_stock} Pieces
+                        <Badge variant={stock <= 0 ? 'destructive' : stock <= item.low_stock_threshold ? 'warning' : 'secondary'} className="text-[10px] px-1.5 py-0">
+                        {stock} Ctns
                         </Badge>
                       </div>
                     </div>
@@ -385,9 +428,16 @@ export default function POSPage() {
       {/* Right Pane - Cart */}
       <div className="w-[400px] flex flex-col bg-surface/50">
         <div className="p-4 border-b border-border bg-surface">
-          <h2 className="font-bold flex items-center gap-2">
-            <ShoppingCart className="w-5 h-5" /> Current Sale
-          </h2>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="font-bold flex items-center gap-2">
+              <ShoppingCart className="w-5 h-5" /> Current Sale
+            </h2>
+            {totalCartCtns > 0 && (
+              <Badge variant="secondary" className="text-[11px] px-2 py-0.5 bg-primary/10 text-primary border-primary/20 font-bold shadow-sm">
+                {totalCartCtns.toLocaleString()} Ctns Total
+              </Badge>
+            )}
+          </div>
           {editSaleId && (
             <div className="mt-3 text-sm font-bold text-blue-600 bg-blue-100 p-2 rounded border border-blue-200 flex justify-between items-center shadow-sm">
               <span>Editing Sale #{editSaleId}</span>
@@ -408,14 +458,6 @@ export default function POSPage() {
             onChange={(val) => cart.setCustomer(val || undefined)}
             placeholder={selectedVanId ? "Walk-in Customer (Optional)" : "Walk-in Customer"}
           />
-          {cart.customer_id && (() => {
-            const cust = customers.find((c: any) => c.id === Number(cart.customer_id))
-            if (!cust || !cust.credit_limit || cust.credit_limit <= 0) return null;
-            const usage = cust.balance / cust.credit_limit;
-            if (usage >= 1) return <div className="mt-2 text-xs font-bold text-destructive bg-destructive/10 p-2 rounded border border-destructive/20">🚨 Over Credit Limit ({formatMoney(cust.balance)} / {formatMoney(cust.credit_limit)})</div>
-            if (usage >= 0.8) return <div className="mt-2 text-xs font-bold text-yellow-600 bg-yellow-100 p-2 rounded border border-yellow-300">⚠️ Near Credit Limit ({formatMoney(cust.balance)} / {formatMoney(cust.credit_limit)})</div>
-            return null;
-          })()}
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
@@ -425,20 +467,122 @@ export default function POSPage() {
               <p>Cart is empty</p>
             </div>
           ) : (
-            cart.items.map((i) => (
+            cart.items.map((i) => {
+              const itemDetails = items.find((item: any) => item.id === i.item_id)
+              return (
               <div key={i.item_id} className="flex flex-col bg-background p-3 rounded-lg border border-border shadow-sm group">
                 <div className="flex justify-between font-medium">
                   <span className="truncate pr-2">{i.name}</span>
                   <span>{formatMoney(i.line_total)}</span>
                 </div>
+                {itemDetails && (itemDetails.size || itemDetails.packaging) && (
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {[itemDetails.size, itemDetails.packaging].filter(Boolean).join(' • ')}
+                  </div>
+                )}
                 <div className="flex justify-between items-center mt-2 gap-2">
-                  <div className="flex flex-col gap-1 w-full">
+                  <div className="flex flex-col gap-2 w-full">
                     <div className="flex items-center gap-2 text-sm">
-                      <span className="w-20 text-muted-foreground text-xs font-semibold mt-[2px]">Qty (Pieces):</span>
-                      <Button variant="outline" size="sm" className="h-6 w-6 p-0" onClick={() => cart.updateCtns(i.item_id, Math.max(1, i.qty - 1))}>-</Button>
-                      <span className="w-6 text-center font-semibold">{i.qty}</span>
-                      <Button variant="outline" size="sm" className="h-6 w-6 p-0" onClick={() => cart.updateCtns(i.item_id, i.qty + 1)}>+</Button>
-                      <span className="text-xs text-muted-foreground ml-auto">@{formatMoney(i.unit_price)}</span>
+                      <span className="w-16 text-muted-foreground text-xs font-semibold mt-[2px]">
+                        Price:
+                      </span>
+                      <Input
+                        type="number"
+                        min="0"
+                        className="w-24 h-7 text-center font-semibold px-1 bg-white/50"
+                        value={i.unit_price / 100 || ''}
+                        onChange={(e) => {
+                          const valStr = e.target.value;
+                          const val = valStr ? Number(valStr) * 100 : 0;
+                          cart.updatePrice(i.item_id, val);
+                        }}
+                        onBlur={async (e) => {
+                          const valStr = e.target.value;
+                          if (!valStr) return;
+                          const val = Number(valStr) * 100;
+                          const itemDetails = items.find((it: any) => it.id === i.item_id);
+                          if (val > 0 && itemDetails && val !== itemDetails.selling_price) {
+                            try {
+                              const itemIds = itemDetails.grouped_ids || [itemDetails.id]
+                              for (const itemId of itemIds) {
+                                const fullItem = await window.api.catalog.getItems().then((all: any[]) => 
+                                  all.find((it: any) => it.id === itemId)
+                                )
+                                if (fullItem) {
+                                  await updateItemMutation.mutateAsync({
+                                    id: itemId,
+                                    data: {
+                                      name: fullItem.name,
+                                      variant: fullItem.variant || undefined,
+                                      size: fullItem.size || undefined,
+                                      packaging: fullItem.packaging || undefined,
+                                      barcode: fullItem.barcode || undefined,
+                                      selling_price: val,
+                                      cost_price: fullItem.cost_price,
+                                      supplier_id: fullItem.supplier_id || undefined,
+                                      category_id: fullItem.category_id || undefined,
+
+                                      low_stock_threshold: fullItem.low_stock_threshold
+                                    }
+                                  })
+                                }
+                              }
+                              toast({ title: 'Price Updated', description: `Master price updated for ${i.name}` })
+                            } catch (error: any) {
+                              toast({ title: 'Error', description: 'Failed to update master price', variant: 'destructive' })
+                            }
+                          }
+                        }}
+                      />
+                      <span className="text-xs text-muted-foreground ml-auto">Total: {formatMoney(i.line_total)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="w-16 text-muted-foreground text-xs font-semibold mt-[2px]">
+                        Qty (Ctn):
+                      </span>
+                      <Button variant="outline" size="sm" className="h-6 w-6 p-0 shrink-0" onClick={() => cart.updateCtns(i.item_id, Math.max(1, i.qty - 1))}>-</Button>
+                      <Input
+                        type="number"
+                        min="0"
+                        max={items.find((item: any) => item.id === i.item_id)?.combined_stock || items.find((item: any) => item.id === i.item_id)?.current_stock || i.qty}
+                        className="w-20 h-7 text-center font-semibold px-1"
+                        value={i.qty === 0 ? '' : i.qty}
+                        onChange={(e) => {
+                          const item = items.find((it: any) => it.id === i.item_id)
+                          const maxQty = item?.combined_stock || item?.current_stock || i.qty
+                          const valStr = e.target.value
+                          if (valStr === '') {
+                            cart.updateCtns(i.item_id, 0)
+                            return
+                          }
+                          const val = parseInt(valStr)
+                          if (!isNaN(val)) {
+                            if (val > maxQty) {
+                              toast({ 
+                                title: 'Insufficient Stock', 
+                                description: `Only ${maxQty} units available in warehouse.`,
+                                variant: 'destructive'
+                              })
+                              cart.updateCtns(i.item_id, maxQty)
+                            } else {
+                              cart.updateCtns(i.item_id, val >= 0 ? val : 0)
+                            }
+                          }
+                        }}
+                      />
+                      <Button variant="outline" size="sm" className="h-6 w-6 p-0 shrink-0" onClick={() => {
+                        const item = items.find((it: any) => it.id === i.item_id)
+                        const maxQty = item?.combined_stock || item?.current_stock || i.qty
+                        if (i.qty + 1 <= maxQty) {
+                          cart.updateCtns(i.item_id, i.qty + 1)
+                        } else {
+                          toast({ 
+                            title: 'Stock Limit Reached', 
+                            description: `Maximum available: ${maxQty} units`,
+                            variant: 'destructive'
+                          })
+                        }
+                      }}>+</Button>
                     </div>
                   </div>
                   <button onClick={() => cart.removeItem(i.item_id)} className="text-destructive opacity-0 group-hover:opacity-100 transition-opacity p-1 ml-2 self-start mt-1">
@@ -446,7 +590,7 @@ export default function POSPage() {
                   </button>
                 </div>
               </div>
-            ))
+            )})
           )}
         </div>
 
@@ -474,7 +618,41 @@ export default function POSPage() {
             {netTotal > 0 && <p className="text-xs text-muted-foreground italic text-right">{numberToWords(netTotal / 100)}</p>}
           </div>
 
-          <div className="flex flex-col pt-2">
+          <div className="flex flex-col pt-2 border-t border-border mt-2 space-y-3">
+            <div>
+              <span className="text-sm font-semibold block mb-1.5">Payment Method (Optional)</span>
+              <div className="flex gap-2">
+                {(['cash', 'easypaisa', 'bank', 'other'] as const).map(m => (
+                  <Button
+                    key={m}
+                    type="button"
+                    variant={selectedPaymentMethod === m ? 'default' : 'outline'}
+                    size="sm"
+                    className="flex-1 capitalize text-xs"
+                    onClick={() => setSelectedPaymentMethod(m)}
+                  >
+                    {m === 'easypaisa' ? 'Easypaisa' : m.charAt(0).toUpperCase() + m.slice(1)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-col space-y-1.5">
+              <span className="text-sm font-semibold">Receive Into Account</span>
+              <select
+                className="w-full h-8 rounded-md border border-input bg-background px-2 text-sm focus-visible:ring-2"
+                value={selectedAccountId || ''}
+                onChange={(e) => {
+                  setSelectedAccountId(Number(e.target.value) || null)
+                  if (!e.target.value) cart.setPaidAmount(0)
+                }}
+              >
+                <option value="">-- Unpaid / Select Account --</option>
+                {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.name} (Rs {a.current_balance ? (a.current_balance / 100).toLocaleString() : 0})</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-col pt-3 mt-1">
             <div className="flex justify-between text-sm items-center">
               <span className="font-semibold">Paid Amount</span>
               <Input 
@@ -483,6 +661,7 @@ export default function POSPage() {
                 value={cart.paid_amount ? cart.paid_amount / 100 : ''} 
                 onChange={(e) => cart.setPaidAmount(Number(e.target.value) * 100)}
                 placeholder={netTotal > 0 ? (netTotal / 100).toString() : '0.00'}
+                disabled={!selectedAccountId}
               />
             </div>
             {cart.paid_amount > 0 && <p className="text-xs text-muted-foreground italic text-right mt-1">{numberToWords(cart.paid_amount / 100)}</p>}
@@ -512,7 +691,7 @@ export default function POSPage() {
         setPreviewOpen(open)
         if (!open) setOverheads([])
       }}>
-        <DialogContent className="sm:max-w-[900px] flex gap-6">
+        <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto flex flex-col md:flex-row gap-6">
           <div className="flex-1 flex flex-col max-h-[85vh]">
             <DialogHeader>
               <DialogTitle>{editSaleId ? 'Update Sale & Print' : 'Complete Sale & Print'}</DialogTitle>
@@ -543,53 +722,8 @@ export default function POSPage() {
               <span className="font-mono">{formatMoney(Math.max(0, netTotal - cart.paid_amount))}</span>
             </div>
 
-            {/* Payment Method & Account Selection */}
-            {cart.paid_amount > 0 && (
-              <div className="pt-3 border-t border-border space-y-3">
-                <div>
-                  <span className="text-sm font-semibold block mb-1.5">Payment Method</span>
-                  <div className="flex gap-2">
-                    {(['cash', 'easypaisa', 'bank', 'other'] as const).map(m => (
-                      <Button
-                        key={m}
-                        type="button"
-                        variant={selectedPaymentMethod === m ? 'default' : 'outline'}
-                        size="sm"
-                        className="flex-1 capitalize text-xs"
-                        onClick={() => setSelectedPaymentMethod(m)}
-                      >
-                        {m === 'easypaisa' ? 'Easypaisa' : m.charAt(0).toUpperCase() + m.slice(1)}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-semibold">Receive Into:</span>
-                  <select
-                    className="w-40 h-8 rounded-md border border-input bg-background px-2 text-sm focus-visible:ring-2"
-                    value={selectedAccountId || ''}
-                    onChange={(e) => setSelectedAccountId(Number(e.target.value))}
-                  >
-                    {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </select>
-                </div>
-              </div>
-            )}
-            
-            {cart.customer_id && (
-              <div className="flex justify-between items-center pt-2 border-t border-border">
-                <span className="text-sm font-bold">Empty Ctns Returned:</span>
-                <Input 
-                  type="number" 
-                  min="0"
-                  className="w-24 h-8 text-right font-bold" 
-                  value={ctnsReturned || ''} 
-                  onChange={(e) => setCtnsReturned(Number(e.target.value))}
-                  placeholder="0"
-                />
-              </div>
-            )}
-            
+
+
             <div className="pt-4 border-t border-border">
               <div className="flex justify-between items-center mb-2">
                 <h3 className="font-semibold text-sm">Sale Overheads</h3>
@@ -608,20 +742,34 @@ export default function POSPage() {
                         className="h-8 text-sm w-full"
                       />
                     </div>
-                    <Input 
-                      type="number" min="0"
-                      className="w-20 h-8 text-right" placeholder="Rs"
-                      value={oh.amount || ''}
-                      onChange={(e) => handleUpdateOverhead(idx, 'amount', Number(e.target.value))}
-                    />
                     <select 
-                      className="w-24 h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:ring-2"
+                      className="w-32 h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:ring-2"
                       value={oh.account_id}
-                      onChange={(e) => handleUpdateOverhead(idx, 'account_id', Number(e.target.value) || '')}
+                      onChange={(e) => {
+                        handleUpdateOverhead(idx, 'account_id', Number(e.target.value) || '')
+                        if (!e.target.value) handleUpdateOverhead(idx, 'amount', 0)
+                      }}
                     >
                       <option value="" disabled>Paid From</option>
-                      {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.name} (Rs {a.current_balance ? (a.current_balance / 100).toLocaleString() : 0})</option>)}
                     </select>
+                    <div className="flex flex-col">
+                      <Input 
+                        type="number" min="0"
+                        max={oh.account_id ? (accounts.find((a: any) => a.id === oh.account_id)?.current_balance || 0) / 100 : undefined}
+                        className="w-20 h-8 text-right" placeholder="Rs"
+                        value={oh.amount || ''}
+                        onChange={(e) => {
+                          const val = Number(e.target.value)
+                          const max = oh.account_id ? (accounts.find((a: any) => a.id === oh.account_id)?.current_balance || 0) / 100 : Infinity;
+                          handleUpdateOverhead(idx, 'amount', val > max ? max : val)
+                        }}
+                        disabled={!oh.account_id}
+                      />
+                      {oh.account_id && oh.amount >= (accounts.find((a: any) => a.id === oh.account_id)?.current_balance || 0) / 100 && oh.amount > 0 && (
+                        <span className="text-[10px] text-destructive leading-tight mt-1">Max balance</span>
+                      )}
+                    </div>
                     <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleRemoveOverhead(idx)}>
                       <Trash2 className="w-4 h-4" />
                     </Button>

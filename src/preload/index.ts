@@ -10,8 +10,20 @@ const api = {
     setupFirstAdmin: (args: any) => ipcRenderer.invoke('auth:setupFirstAdmin', args),
     login: (args: any) => ipcRenderer.invoke('auth:login', args),
     logout: () => ipcRenderer.invoke('auth:logout'),
+    restoreSession: (userId: number) => ipcRenderer.invoke('auth:restoreSession', userId),
     getUsers: () => ipcRenderer.invoke('auth:getUsers'),
-    createSalesman: (data: any, userId: number) => ipcRenderer.invoke('auth:createSalesman', data, userId)
+    getVanSalesmen: () => ipcRenderer.invoke('auth:getVanSalesmen'),
+    createSalesman: (data: any, userId: number) => ipcRenderer.invoke('auth:createSalesman', data, userId),
+    createUser: (data: any, userId: number) => ipcRenderer.invoke('auth:createUser', data, userId),
+    changePassword: (data: any, userId: number) => ipcRenderer.invoke('auth:changePassword', data, userId),
+    resetPassword: (data: any, userId: number) => ipcRenderer.invoke('auth:resetPassword', data, userId),
+    deleteUser: (targetUserId: number, userId: number) => ipcRenderer.invoke('auth:deleteUser', targetUserId, userId),
+    // Security Questions
+    setSecurityQuestions: (data: any, userId: number) => ipcRenderer.invoke('auth:setSecurityQuestions', data, userId),
+    hasSecurityQuestions: (userId: number) => ipcRenderer.invoke('auth:hasSecurityQuestions', userId),
+    getSecurityQuestions: (username: string) => ipcRenderer.invoke('auth:getSecurityQuestions', username),
+    verifyAndResetPassword: (data: any) => ipcRenderer.invoke('auth:verifyAndResetPassword', data),
+    getPredefinedQuestions: () => ipcRenderer.invoke('auth:getPredefinedQuestions')
   },
   catalog: {
     getCategories: () => ipcRenderer.invoke('catalog:getCategories'),
@@ -19,9 +31,11 @@ const api = {
     updateCategory: (id: number, data: any, userId: number) => ipcRenderer.invoke('catalog:updateCategory', id, data, userId),
     deleteCategory: (id: number, userId: number) => ipcRenderer.invoke('catalog:deleteCategory', id, userId),
     getItems: () => ipcRenderer.invoke('catalog:getItems'),
+    getItemsGrouped: () => ipcRenderer.invoke('catalog:getItemsGrouped'),
     createItem: (data: any, userId: number) => ipcRenderer.invoke('catalog:createItem', data, userId),
     updateItem: (id: number, data: any, userId: number) => ipcRenderer.invoke('catalog:updateItem', id, data, userId),
     deleteItem: (id: number, userId: number) => ipcRenderer.invoke('catalog:deleteItem', id, userId),
+    getAnalytics: () => ipcRenderer.invoke('catalog:getAnalytics'),
   },
   parties: {
     getAreas: () => ipcRenderer.invoke('parties:getAreas'),
@@ -32,7 +46,7 @@ const api = {
     createRoute: (data: any, userId: number) => ipcRenderer.invoke('parties:createRoute', data, userId),
     updateRoute: (id: number, data: any, userId: number) => ipcRenderer.invoke('parties:updateRoute', id, data, userId),
     deleteRoute: (id: number, userId: number) => ipcRenderer.invoke('parties:deleteRoute', id, userId),
-    getCustomers: () => ipcRenderer.invoke('parties:getCustomers'),
+    getCustomers: (filters?: any) => ipcRenderer.invoke('parties:getCustomers', filters),
     createCustomer: (data: any, userId: number) => ipcRenderer.invoke('parties:createCustomer', data, userId),
     updateCustomer: (id: number, data: any, userId: number) => ipcRenderer.invoke('parties:updateCustomer', id, data, userId),
     deleteCustomer: (id: number, userId: number) => ipcRenderer.invoke('parties:deleteCustomer', id, userId),
@@ -40,6 +54,10 @@ const api = {
     createSupplier: (data: any, userId: number) => ipcRenderer.invoke('parties:createSupplier', data, userId),
     updateSupplier: (id: number, data: any, userId: number) => ipcRenderer.invoke('parties:updateSupplier', id, data, userId),
     deleteSupplier: (id: number, userId: number) => ipcRenderer.invoke('parties:deleteSupplier', id, userId),
+    getCustomerStatement: (customerId: number, fromDate: string, toDate: string) => ipcRenderer.invoke('parties:getCustomerStatement', customerId, fromDate, toDate),
+    getSupplierStatement: (supplierId: number, fromDate: string, toDate: string) => ipcRenderer.invoke('parties:getSupplierStatement', supplierId, fromDate, toDate),
+    getTopCustomers: () => ipcRenderer.invoke('parties:getTopCustomers'),
+    getTopSuppliers: () => ipcRenderer.invoke('parties:getTopSuppliers'),
   },
   sales: {
     createSale: (data: any, userId: number) => ipcRenderer.invoke('sales:createSale', data, userId),
@@ -65,19 +83,18 @@ const api = {
   payments: {
     recordPayment: (data: any, userId: number) => ipcRenderer.invoke('payments:record', userId, data),
     getAll: (page?: number, limit?: number, filters?: any) => ipcRenderer.invoke('payments:getAll', page, limit, filters),
-    voidPayment: (paymentId: number, userId: number) => ipcRenderer.invoke('payments:void', paymentId, userId)
+    voidPayment: (paymentId: number, userId: number) => ipcRenderer.invoke('payments:void', paymentId, userId),
+    getUnpaidDocuments: (partyType: string, partyId: number) => ipcRenderer.invoke('payments:getUnpaidDocuments', partyType, partyId)
   },
   accounts: {
     getAccounts: () => ipcRenderer.invoke('accounts:getAll'),
     createAccount: (data: any, userId: number) => ipcRenderer.invoke('accounts:create', data, userId),
     getTransactions: (accountId?: number | null, page?: number, limit?: number, filters?: any) => ipcRenderer.invoke('accounts:getTransactions', accountId, page, limit, filters),
-    transferFunds: (data: any, userId: number) => ipcRenderer.invoke('accounts:transfer', userId, data)
-  },
-  installments: {
-    createPlan: (data: any, userId: number) => ipcRenderer.invoke('installments:create', userId, data),
-    recordPayment: (data: any, userId: number) => ipcRenderer.invoke('installments:recordPayment', userId, data),
-    getPlans: (saleId?: number) => ipcRenderer.invoke('installments:getPlans', saleId),
-    getSchedule: (planId: number) => ipcRenderer.invoke('installments:getSchedule', planId)
+    transferFunds: (data: any, userId: number) => ipcRenderer.invoke('accounts:transfer', userId, data),
+    addCapital: (data: any, userId: number) => ipcRenderer.invoke('accounts:addCapital', data, userId),
+    withdrawCapital: (data: any, userId: number) => ipcRenderer.invoke('accounts:withdrawCapital', data, userId),
+    deleteTransaction: (transactionId: number, userId: number) => ipcRenderer.invoke('accounts:deleteTransaction', transactionId, userId),
+    updateTransaction: (transactionId: number, data: any, userId: number) => ipcRenderer.invoke('accounts:updateTransaction', transactionId, data, userId)
   },
   dashboard: {
     getKPIs: () => ipcRenderer.invoke('dashboard:getKPIs'),
@@ -96,18 +113,25 @@ const api = {
   },
   vans: {
     getActiveAssignments: () => ipcRenderer.invoke('vans:getActiveAssignments'),
-    getAllAssignments: (page?: number, limit?: number) => ipcRenderer.invoke('vans:getAllAssignments', page, limit),
+    getAllAssignments: (page?: number, limit?: number, filters?: any) => ipcRenderer.invoke('vans:getAllAssignments', page, limit, filters),
     getAssignmentDetails: (id: number) => ipcRenderer.invoke('vans:getAssignmentDetails', id),
+    getAssignmentReport: (id: number) => ipcRenderer.invoke('vans:getAssignmentReport', id),
     createAssignment: (data: any, userId: number) => ipcRenderer.invoke('vans:createAssignment', data, userId),
     reconcileAssignment: (id: number, returns: any, userId: number) => ipcRenderer.invoke('vans:reconcileAssignment', id, returns, userId),
     addExpense: (vanAssignmentId: number, categoryId: number, amount: number, accountId: number, note: string, userId: number) => ipcRenderer.invoke('vans:addExpense', vanAssignmentId, categoryId, amount, accountId, note, userId),
-    getExpenses: (vanAssignmentId: number) => ipcRenderer.invoke('vans:getExpenses', vanAssignmentId)
+    getExpenses: (vanAssignmentId: number) => ipcRenderer.invoke('vans:getExpenses', vanAssignmentId),
+    deleteAssignment: (id: number, userId: number) => ipcRenderer.invoke('vans:deleteAssignment', id, userId)
   },
   settings: {
     createBackup: (userId: number) => ipcRenderer.invoke('settings:createBackup', userId),
     getBackupLogs: () => ipcRenderer.invoke('settings:getBackupLogs'),
     getBusinessSettings: () => ipcRenderer.invoke('settings:getBusinessSettings'),
-    updateBusinessSettings: (data: any, userId: number) => ipcRenderer.invoke('settings:updateBusinessSettings', data, userId)
+    updateBusinessSettings: (data: any, userId: number) => ipcRenderer.invoke('settings:updateBusinessSettings', data, userId),
+    exportLogs: () => ipcRenderer.invoke('settings:exportLogs'),
+    getPrinterConfig: () => ipcRenderer.invoke('settings:getPrinterConfig'),
+    savePrinterConfig: (data: any) => ipcRenderer.invoke('settings:savePrinterConfig', data),
+    testPrint: () => ipcRenderer.invoke('settings:testPrint'),
+    getSystemPrinters: () => ipcRenderer.invoke('settings:getSystemPrinters')
   },
   audit: {
     getLogs: (page?: number, limit?: number, filters?: any) => ipcRenderer.invoke('audit:getLogs', page, limit, filters)
@@ -115,7 +139,7 @@ const api = {
   expenses: {
     getCategories: () => ipcRenderer.invoke('expenses:getCategories'),
     createCategory: (name: string) => ipcRenderer.invoke('expenses:createCategory', name),
-    getAll: () => ipcRenderer.invoke('expenses:getAll'),
+    getAll: (filters?: any) => ipcRenderer.invoke('expenses:getAll', filters),
     create: (data: any, userId: number) => ipcRenderer.invoke('expenses:create', data, userId),
     deletePurchaseOverheads: (purchaseId: number, userId: number) => ipcRenderer.invoke('expenses:deletePurchaseOverheads', purchaseId, userId)
   },
@@ -123,11 +147,15 @@ const api = {
     getAll: () => ipcRenderer.invoke('adjustments:getAll'),
     create: (data: any, userId: number) => ipcRenderer.invoke('adjustments:create', data, userId)
   },
+  shell: {
+    openPath: (path: string) => ipcRenderer.invoke('shell:openPath', path)
+  },
   backup: {
     auth: () => ipcRenderer.invoke('backup:auth'),
     status: () => ipcRenderer.invoke('backup:status'),
     upload: () => ipcRenderer.invoke('backup:upload'),
-    restore: () => ipcRenderer.invoke('backup:restore')
+    restore: () => ipcRenderer.invoke('backup:restore'),
+    disconnect: () => ipcRenderer.invoke('backup:disconnect')
   }
 }
 

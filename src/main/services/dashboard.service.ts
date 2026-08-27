@@ -1,12 +1,8 @@
 import { db } from '../db/connection'
 import { sql } from 'kysely'
-import { applyLateFees } from './installments.service'
 import { subDays, format } from 'date-fns'
 
 export async function getKPIs() {
-  // Fire and forget late fee application to act as a lightweight cron
-  applyLateFees().catch(err => console.error('Failed to apply late fees:', err))
-
   const today = format(new Date(), 'yyyy-MM-dd')
 
   // Sales Today
@@ -20,7 +16,7 @@ export async function getKPIs() {
   const cogsToday = await db.selectFrom('sale_items')
     .innerJoin('sales', 'sales.id', 'sale_items.sale_id')
     .innerJoin('items', 'items.id', 'sale_items.item_id')
-    .select(sql`SUM(sale_items.qty * sale_items.cost_price_snapshot)`.as('total'))
+    .select(sql`SUM(sale_items.qty * COALESCE(sale_items.cost_price_snapshot, 0))`.as('total'))
     .where('sales.is_deleted', '=', 0)
     .where('sales.date', '>=', today)
     .executeTakeFirst()
@@ -32,10 +28,22 @@ export async function getKPIs() {
     .where('date', '>=', today)
     .executeTakeFirst()
 
+  // Inventory Adjustments Today
+  const adjustmentsToday = await db.selectFrom('stock_adjustments')
+    .select([
+      sql<number>`SUM(CASE WHEN change_qty < 0 AND reason IN ('damage', 'expiry', 'theft') THEN total_value ELSE 0 END)`.as('loss'),
+      sql<number>`SUM(CASE WHEN change_qty > 0 AND reason = 'recount' THEN total_value ELSE 0 END)`.as('gain')
+    ])
+    .where(sql`date(created_at)`, '>=', today)
+    .executeTakeFirst()
+
   const salesTotal = Number(salesToday?.total || 0)
   const cogsTotal = Number(cogsToday?.total || 0)
   const expTotal = Number(expensesToday?.total || 0)
-  const profitToday = salesTotal - cogsTotal - expTotal
+  const stockLoss = Number(adjustmentsToday?.loss || 0)
+  const stockGain = Number(adjustmentsToday?.gain || 0)
+  
+  const profitToday = salesTotal - cogsTotal - expTotal - stockLoss + stockGain
 
   // Receivables (Customers owing us)
   const receivables = await db.selectFrom('customers')
@@ -119,7 +127,21 @@ export async function getExpenseBreakdown() {
     .groupBy('expense_categories.id')
     .execute()
 
-  return data.map(d => ({ name: d.name, value: Number(d.total) }))
+  // Add Inventory Shrinkage
+  const shrinkage = await db.selectFrom('stock_adjustments')
+    .select(sql<number>`SUM(total_value)`.as('total'))
+    .where('change_qty', '<', 0)
+    .where('reason', 'in', ['damage', 'expiry', 'theft'])
+    .where(sql`date(created_at)`, '>=', thirtyDaysAgo)
+    .executeTakeFirst()
+
+  const result = data.map(d => ({ name: d.name, value: Number(d.total) }))
+  
+  if (shrinkage?.total && Number(shrinkage.total) > 0) {
+    result.push({ name: 'Inventory Shrinkage', value: Number(shrinkage.total) })
+  }
+
+  return result
 }
 
 export async function getRecentActivity() {

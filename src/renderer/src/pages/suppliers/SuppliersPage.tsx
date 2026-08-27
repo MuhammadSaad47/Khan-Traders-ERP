@@ -1,6 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Plus, Search, Truck, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Search, Truck, Pencil, Trash2, CalendarIcon, FileText } from 'lucide-react'
 import { useSuppliers, useCreateSupplier, useUpdateSupplier, useDeleteSupplier } from '../../hooks/useParties'
+import { format, subDays } from 'date-fns'
+import { SupplierStatementDialog } from './SupplierStatementDialog'
+import { TopPartiesDialog } from '../../components/TopPartiesDialog'
+import { useTopSuppliers } from '../../hooks/useParties'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Combobox } from '@/components/ui/combobox'
@@ -22,6 +26,7 @@ import {
 } from '@/components/ui/dialog'
 import { useAuthStore } from '../../stores/auth.store'
 import { useToast } from '@/hooks/use-toast'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 export default function SuppliersPage() {
   const { data: suppliers = [], isLoading } = useSuppliers()
@@ -30,8 +35,17 @@ export default function SuppliersPage() {
   const { toast } = useToast()
 
   const [searchTerm, setSearchTerm] = useState('')
+  const [dateRange, setDateRange] = useState({ 
+    from: format(subDays(new Date(), 30), 'yyyy-MM-dd'), 
+    to: format(new Date(), 'yyyy-MM-dd') 
+  })
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [statementOpen, setStatementOpen] = useState(false)
+  const [analyticsOpen, setAnalyticsOpen] = useState(false)
+  const [selectedSupplier, setSelectedSupplier] = useState<any>(null)
   const [editingSupplier, setEditingSupplier] = useState<any>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<{open: boolean, id: number, name: string} | null>(null)
+  const { data: topSuppliers = [], isLoading: isLoadingTopSuppliers } = useTopSuppliers()
   
   const [supplierName, setSupplierName] = useState('')
 
@@ -85,7 +99,8 @@ export default function SuppliersPage() {
       toast({ title: 'Success', description: `Supplier ${editingSupplier ? 'updated' : 'created'} successfully` })
     } catch (error) {
       console.error('Failed to save supplier:', error)
-      toast({ title: 'Error', description: 'Failed to save supplier', variant: 'destructive' })
+      const msg = (error as any)?.message?.replace(/Error invoking remote method '.*?': Error: /, '') || 'Failed to save supplier'
+      toast({ title: 'Error', description: msg, variant: 'destructive' })
     }
   }
 
@@ -97,20 +112,40 @@ export default function SuppliersPage() {
           <p className="text-muted-foreground mt-1">Manage supplier balances and contact info.</p>
         </div>
         <div className="flex gap-3">
+          <Button variant="outline" onClick={() => setAnalyticsOpen(true)} className="gap-2">
+            Top Suppliers
+          </Button>
           <Button onClick={() => handleOpenModal()} className="gap-2">
             <Plus className="w-4 h-4" /> New Supplier
           </Button>
         </div>
       </div>
 
-      <div className="flex items-center gap-4 bg-surface p-4 rounded-xl border shadow-sm mb-6">
-        <div className="relative flex-1">
+      <div className="flex flex-wrap items-center gap-4 bg-surface p-4 rounded-xl border shadow-sm mb-6">
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input 
             placeholder="Search by name..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-9 bg-background/50 border-0 shadow-none ring-1 ring-inset ring-border/50 focus-visible:ring-2 focus-visible:ring-primary"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 bg-background/50 p-1.5 rounded-lg border shadow-sm text-sm">
+          <CalendarIcon className="w-4 h-4 text-muted-foreground ml-2" />
+          <input 
+            type="date" 
+            className="bg-transparent focus:outline-none border-none text-muted-foreground cursor-pointer"
+            value={dateRange.from}
+            onChange={(e) => setDateRange(prev => ({ ...prev, from: e.target.value }))}
+          />
+          <span className="text-muted-foreground">to</span>
+          <input 
+            type="date" 
+            className="bg-transparent focus:outline-none border-none text-muted-foreground cursor-pointer mr-1"
+            value={dateRange.to}
+            onChange={(e) => setDateRange(prev => ({ ...prev, to: e.target.value }))}
           />
         </div>
       </div>
@@ -160,11 +195,17 @@ export default function SuppliersPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10" onClick={() => {
+                          setSelectedSupplier(s)
+                          setStatementOpen(true)
+                        }} title="View Statement">
+                          <FileText className="w-4 h-4" />
+                        </Button>
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpenModal(s)}>
                           <Pencil className="w-4 h-4 text-muted-foreground" />
                         </Button>
                         {isManager && (
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => { if(window.confirm(`Delete supplier "${s.name}"?`)) deleteSupplier.mutate(s.id) }}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteConfirm({ open: true, id: s.id, name: s.name })}>
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         )}
@@ -179,7 +220,7 @@ export default function SuppliersPage() {
       </div>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingSupplier ? 'Edit Supplier' : 'Create New Supplier'}</DialogTitle>
           </DialogHeader>
@@ -204,6 +245,36 @@ export default function SuppliersPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <SupplierStatementDialog
+        open={statementOpen}
+        onOpenChange={setStatementOpen}
+        supplierId={selectedSupplier?.id || null}
+        supplierName={selectedSupplier?.name || ''}
+        fromDate={dateRange.from}
+        toDate={dateRange.to}
+      />
+
+      <TopPartiesDialog 
+        open={analyticsOpen} 
+        onOpenChange={setAnalyticsOpen} 
+        title="Top Suppliers (All Time)" 
+        parties={topSuppliers} 
+        isLoading={isLoadingTopSuppliers} 
+      />
+
+      {deleteConfirm && (
+        <ConfirmDialog 
+          open={deleteConfirm.open} 
+          onOpenChange={(o) => !o && setDeleteConfirm(null)}
+          title="Delete Supplier"
+          description={`Are you sure you want to delete "${deleteConfirm.name}"? This action cannot be undone.`}
+          onConfirm={() => {
+            deleteSupplier.mutate(deleteConfirm.id)
+            setDeleteConfirm(null)
+          }}
+        />
+      )}
     </div>
   )
 }

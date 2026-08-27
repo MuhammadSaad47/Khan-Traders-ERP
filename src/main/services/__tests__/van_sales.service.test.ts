@@ -36,14 +36,9 @@ describe('Van Sales Service', () => {
 
     // Reconcile and collect cash
     const result = await reconcileVanAssignment(assignment.id, {
-      cash_collected: 5000,
-      account_id: 1 // Default account for tests
+      returns: [{ item_id: 1, qty_returned: 10 }]
     }, 1)
 
     expect(result.status).toBe('reconciled')
-
-    // Verify account balance
-    const account = await db.selectFrom('accounts').where('id', '=', 1).selectAll().executeTakeFirst()
-    expect(account?.current_balance).toBe(5000)
   })
 })

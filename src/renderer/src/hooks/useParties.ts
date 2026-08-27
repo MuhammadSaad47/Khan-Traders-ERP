@@ -2,10 +2,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/auth.store'
 import { useToast } from '@/hooks/use-toast'
 
-export function useCustomers() {
+export function useCustomers(filters?: { fromDate?: string; toDate?: string }) {
   return useQuery({
-    queryKey: ['customers'],
-    queryFn: async () => await window.api.parties.getCustomers()
+    queryKey: ['customers', filters],
+    queryFn: async () => await window.api.parties.getCustomers(filters)
   })
 }
 
@@ -123,5 +123,37 @@ export function useCreateRoute() {
   return useMutation({
     mutationFn: async (data: any) => await window.api.parties.createRoute(data, user!.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['routes'] })
+  })
+}
+
+// Statements
+export function useCustomerStatement(customerId: number, fromDate: string, toDate: string) {
+  return useQuery({
+    queryKey: ['customer-statement', customerId, fromDate, toDate],
+    queryFn: async () => await window.api.parties.getCustomerStatement(customerId, fromDate, toDate),
+    enabled: !!customerId && !!fromDate && !!toDate
+  })
+}
+
+export function useSupplierStatement(supplierId: number, fromDate: string, toDate: string) {
+  return useQuery({
+    queryKey: ['supplierStatement', supplierId, fromDate, toDate],
+    queryFn: async () => await window.api.parties.getSupplierStatement(supplierId, fromDate, toDate),
+    enabled: !!supplierId && !!fromDate && !!toDate
+  })
+}
+
+// Analytics
+export function useTopCustomers() {
+  return useQuery({
+    queryKey: ['topCustomers'],
+    queryFn: async () => await window.api.parties.getTopCustomers()
+  })
+}
+
+export function useTopSuppliers() {
+  return useQuery({
+    queryKey: ['topSuppliers'],
+    queryFn: async () => await window.api.parties.getTopSuppliers()
   })
 }

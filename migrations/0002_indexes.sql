@@ -37,10 +37,6 @@ CREATE INDEX idx_payments_party ON payments(party_type, party_id);
 CREATE INDEX idx_payments_date ON payments(date);
 CREATE INDEX idx_payments_reference ON payments(reference_type, reference_id);
 
--- Installments
-CREATE INDEX idx_installment_schedule_plan ON installment_schedule(plan_id);
-CREATE INDEX idx_installment_schedule_due ON installment_schedule(due_date);
-CREATE INDEX idx_installment_schedule_status ON installment_schedule(status);
 
 -- Crates
 CREATE INDEX idx_crate_transactions_customer ON crate_transactions(customer_id);

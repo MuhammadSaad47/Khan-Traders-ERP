@@ -1,3 +1,4 @@
+import { format } from 'date-fns'
 import { useState } from 'react'
 import { useExpenses, useExpenseCategories, useCreateExpense, useCreateExpenseCategory } from '../../hooks/useExpenses'
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts'
@@ -9,11 +10,19 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Combobox } from '@/components/ui/combobox'
 import { numberToWords } from '../../lib/numberToWords'
-import { Plus, Receipt, Banknote } from 'lucide-react'
+import { Plus, Receipt, Banknote, CalendarDays } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 
 export default function ExpensesPage() {
-  const { data: expenses = [] } = useExpenses()
+  const [filters, setFilters] = useState({ date_from: '', date_to: '', category_id: 'all' })
+  
+  const queryFilters = {
+    date_from: filters.date_from || undefined,
+    date_to: filters.date_to || undefined,
+    category_id: filters.category_id !== 'all' ? Number(filters.category_id) : undefined
+  }
+
+  const { data: expenses = [] } = useExpenses(queryFilters)
   const { data: categories = [] } = useExpenseCategories()
   const { data: accounts = [] } = useAccounts()
   const createExpense = useCreateExpense()
@@ -21,7 +30,12 @@ export default function ExpensesPage() {
   const { toast } = useToast()
 
   const [open, setOpen] = useState(false)
-  const [formData, setFormData] = useState<any>({})
+  const [formData, setFormData] = useState<any>({ date: format(new Date(), 'yyyy-MM-dd') })
+
+  const handleOpenDialog = () => {
+    setFormData({ date: format(new Date(), 'yyyy-MM-dd') })
+    setOpen(true)
+  }
 
   useKeyboardShortcuts({
     'Ctrl+N': () => setOpen(true),
@@ -48,10 +62,11 @@ export default function ExpensesPage() {
         amount: Math.round(Number(formData.amount) * 100),
         category_id: final_cat_id,
         account_id: Number(formData.account_id),
+        date: formData.date ? formData.date + 'T12:00:00.000Z' : new Date().toISOString(),
         note: formData.note
       })
       setOpen(false)
-      setFormData({})
+      setFormData({ date: format(new Date(), 'yyyy-MM-dd') })
       toast({ title: 'Success', description: 'Expense recorded successfully' })
     } catch (err) {
       console.error(err)
@@ -62,19 +77,77 @@ export default function ExpensesPage() {
   const formatMoney = (paisa: number) => `Rs ${(paisa / 100).toFixed(0)}`
   const categoryOptions = categories.map((c: any) => ({ value: c.id.toString(), label: c.name }))
 
+  const totalExpense = expenses.reduce((sum: number, e: any) => sum + e.amount, 0)
+  
+  const categoryTotals = expenses.reduce((acc: any, e: any) => {
+    acc[e.category_name] = (acc[e.category_name] || 0) + e.amount
+    return acc
+  }, {})
+
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)] w-full p-4 sm:p-6 lg:p-8 overflow-y-auto">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Expenses</h1>
           <p className="text-muted-foreground mt-1">Track daily operating expenses.</p>
         </div>
-        <Button onClick={() => setOpen(true)} className="gap-2 bg-destructive hover:bg-destructive/90 text-destructive-foreground">
-          <Plus className="w-4 h-4" /> Record Expense
-        </Button>
+        
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 bg-surface border rounded-md p-1 shadow-sm">
+            <Input 
+              type="date" 
+              className="h-8 border-none bg-transparent shadow-none w-36"
+              value={filters.date_from}
+              onChange={e => setFilters({...filters, date_from: e.target.value})}
+            />
+            <span className="text-muted-foreground text-sm">to</span>
+            <Input 
+              type="date" 
+              className="h-8 border-none bg-transparent shadow-none w-36"
+              value={filters.date_to}
+              onChange={e => setFilters({...filters, date_to: e.target.value})}
+            />
+          </div>
+          
+          <Select value={filters.category_id} onValueChange={v => setFilters({...filters, category_id: v})}>
+            <SelectTrigger className="w-40 h-10 bg-surface shadow-sm"><SelectValue placeholder="All Categories" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {categories.map((c: any) => (
+                <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Button onClick={() => handleOpenDialog()} className="h-10 gap-2 bg-destructive hover:bg-destructive/90 text-destructive-foreground ml-2">
+            <Plus className="w-4 h-4" /> Record
+          </Button>
+        </div>
       </div>
 
-      <div className="rounded-xl border bg-surface shadow-sm overflow-hidden flex-1 overflow-y-auto">
+      {/* Analytics Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="rounded-xl border bg-surface p-4 shadow-sm flex flex-col justify-center">
+          <p className="text-sm font-medium text-muted-foreground">Total Expenses</p>
+          <p className="text-2xl font-bold text-destructive mt-1">{formatMoney(totalExpense)}</p>
+          <p className="text-xs text-muted-foreground mt-1">Based on current filters</p>
+        </div>
+        <div className="col-span-3 flex gap-3 overflow-x-auto pb-2">
+          {Object.entries(categoryTotals).map(([name, amount]: any) => (
+            <div key={name} className="flex-shrink-0 min-w-[150px] rounded-xl border bg-surface p-3 shadow-sm flex flex-col justify-center">
+              <p className="text-xs font-medium text-muted-foreground truncate">{name}</p>
+              <p className="text-lg font-bold mt-1">{formatMoney(amount)}</p>
+            </div>
+          ))}
+          {Object.keys(categoryTotals).length === 0 && (
+            <div className="flex items-center text-sm text-muted-foreground italic h-full px-4">
+              No categories to display
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-xl border bg-surface shadow-sm overflow-hidden flex-1 flex flex-col min-h-0">
         <Table>
           <TableHeader className="bg-muted/50 sticky top-0">
             <TableRow>
@@ -115,7 +188,7 @@ export default function ExpensesPage() {
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Record New Expense</DialogTitle>
           </DialogHeader>
@@ -161,6 +234,20 @@ export default function ExpensesPage() {
                 onChange={(e) => setFormData({...formData, note: e.target.value})}
                 placeholder="Optional description"
               />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground mb-1 flex items-center gap-1">
+                <CalendarDays className="w-3.5 h-3.5 text-primary" /> Expense Date
+              </label>
+              <input
+                type="date"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                value={formData.date || format(new Date(), 'yyyy-MM-dd')}
+                onChange={(e) => setFormData({...formData, date: e.target.value})}
+                max={format(new Date(), 'yyyy-MM-dd')}
+              />
+              <p className="text-xs text-muted-foreground italic mt-1">Defaults to today. Change to backdate this expense.</p>
             </div>
           </div>
           <DialogFooter>

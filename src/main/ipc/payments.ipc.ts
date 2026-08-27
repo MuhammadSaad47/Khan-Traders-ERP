@@ -17,4 +17,8 @@ export function registerPaymentsIpc() {
     await requireRole(['admin', 'manager'])
     return await paymentsService.voidPayment(paymentId, userId)
   })
+
+  ipcMain.handle('payments:getUnpaidDocuments', async (_, partyType: 'customer' | 'supplier', partyId: number) => {
+    return await paymentsService.getUnpaidDocuments(partyType, partyId)
+  })
 }

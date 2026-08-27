@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/auth.store'
 
-export function useExpenses() {
+export function useExpenses(filters?: any) {
   return useQuery({
-    queryKey: ['expenses'],
+    queryKey: ['expenses', filters],
     queryFn: async () => await window.api.expenses.getAll()
   })
 }
@@ -29,7 +29,10 @@ export function useCreateExpense() {
   
   return useMutation({
     mutationFn: async (data: any) => await window.api.expenses.create(data, user!.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['expenses'] })
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    }
   })
 }
 
@@ -39,6 +42,9 @@ export function useDeletePurchaseOverheads() {
   
   return useMutation({
     mutationFn: async (purchaseId: number) => await window.api.expenses.deletePurchaseOverheads(purchaseId, user!.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['expenses'] })
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    }
   })
 }

@@ -1,3 +1,4 @@
+import { format } from 'date-fns'
 import { useState } from 'react'
 import { 
   Wallet, 
@@ -13,9 +14,15 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCcw,
-  X
+  X,
+  TrendingUp,
+  TrendingDown,
+  CalendarDays,
+  Pencil,
+  Trash2
 } from 'lucide-react'
-import { useAccounts, useAccountTransactions, useTransferFunds, useCreateAccount } from '../../hooks/useAccounts'
+import { useAccounts, useAccountTransactions, useTransferFunds, useCreateAccount, useAddCapital, useWithdrawCapital, useDeleteAccountTransaction, useUpdateAccountTransaction } from '../../hooks/useAccounts'
+// useAuthStore omitted
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -27,6 +34,7 @@ import {
   DialogFooter,
   DialogDescription
 } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table,
@@ -43,18 +51,45 @@ export default function AccountsPage() {
   const { data: accounts = [], isLoading: isLoadingAccounts } = useAccounts()
   const transferFunds = useTransferFunds()
   const createAccount = useCreateAccount()
+  const addCapital = useAddCapital()
+  const withdrawCapital = useWithdrawCapital()
+  const deleteTransaction = useDeleteAccountTransaction()
+  const updateTransaction = useUpdateAccountTransaction()
   const { toast } = useToast()
 
   // Modal States
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false)
   const [isCreateAccountOpen, setIsCreateAccountOpen] = useState(false)
+  const [isCapitalInvestOpen, setIsCapitalInvestOpen] = useState(false)
+  const [isCapitalWithdrawOpen, setIsCapitalWithdrawOpen] = useState(false)
   const [selectedLedgerAccount, setSelectedLedgerAccount] = useState<any | null>(null)
+
+  // Edit Transaction Modal State
+  const [editTx, setEditTx] = useState<any | null>(null)
+
+  const [deleteConfirm, setDeleteConfirm] = useState<{open: boolean, tx: any, message: string} | null>(null)
+  const [editTxAmount, setEditTxAmount] = useState('')
+  const [editTxDesc, setEditTxDesc] = useState('')
+  const [editTxDate, setEditTxDate] = useState('')
 
   // Transfer Form State
   const [fromAccount, setFromAccount] = useState<number | ''>('')
   const [toAccount, setToAccount] = useState<number | ''>('')
   const [transferAmount, setTransferAmount] = useState('')
   const [transferDesc, setTransferDesc] = useState('')
+  const [transferDate, setTransferDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
+
+  // Capital Investment Form State
+  const [investAccount, setInvestAccount] = useState<number | ''>('')
+  const [investAmount, setInvestAmount] = useState('')
+  const [investDesc, setInvestDesc] = useState('')
+  const [investDate, setInvestDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
+
+  // Capital Withdrawal Form State
+  const [withdrawAccount, setWithdrawAccount] = useState<number | ''>('')
+  const [withdrawAmount, setWithdrawAmount] = useState('')
+  const [withdrawDesc, setWithdrawDesc] = useState('')
+  const [withdrawDate, setWithdrawDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
 
   // Create Account Form State
   const [newAccName, setNewAccName] = useState('')
@@ -106,6 +141,7 @@ export default function AccountsPage() {
         from_account_id: Number(fromAccount),
         to_account_id: Number(toAccount),
         amount: Number(transferAmount) * 100,
+        date: transferDate + 'T12:00:00.000Z',
         description: transferDesc
       })
       setIsTransferModalOpen(false)
@@ -113,6 +149,7 @@ export default function AccountsPage() {
       setToAccount('')
       setTransferAmount('')
       setTransferDesc('')
+      setTransferDate(format(new Date(), 'yyyy-MM-dd'))
       toast({ title: 'Success', description: 'Funds transferred successfully' })
     } catch (error: any) {
       console.error(error)
@@ -138,6 +175,108 @@ export default function AccountsPage() {
     } catch (error: any) {
       console.error(error)
       toast({ title: 'Error', description: error.message || 'Failed to create account', variant: 'destructive' })
+    }
+  }
+
+  const handleCapitalInvest = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!investAccount || !investAmount) return
+
+    try {
+      await addCapital.mutateAsync({
+        account_id: Number(investAccount),
+        amount: Number(investAmount) * 100,
+        date: investDate + 'T12:00:00.000Z',
+        description: investDesc || 'Capital Investment by Owner'
+      })
+      setIsCapitalInvestOpen(false)
+      setInvestAccount('')
+      setInvestAmount('')
+      setInvestDesc('')
+      setInvestDate(format(new Date(), 'yyyy-MM-dd'))
+      toast({ title: 'Success', description: 'Capital investment added successfully' })
+    } catch (error: any) {
+      console.error(error)
+      toast({ title: 'Error', description: error.message || 'Investment failed', variant: 'destructive' })
+    }
+  }
+
+  const handleCapitalWithdraw = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!withdrawAccount || !withdrawAmount) return
+
+    try {
+      await withdrawCapital.mutateAsync({
+        account_id: Number(withdrawAccount),
+        amount: Number(withdrawAmount) * 100,
+        date: withdrawDate + 'T12:00:00.000Z',
+        description: withdrawDesc || 'Capital Withdrawal by Owner'
+      })
+      setIsCapitalWithdrawOpen(false)
+      setWithdrawAccount('')
+      setWithdrawAmount('')
+      setWithdrawDesc('')
+      setWithdrawDate(format(new Date(), 'yyyy-MM-dd'))
+      toast({ title: 'Success', description: 'Capital withdrawn successfully' })
+    } catch (error: any) {
+      console.error(error)
+      toast({ title: 'Error', description: error.message || 'Withdrawal failed', variant: 'destructive' })
+    }
+  }
+
+  const handleOpenEditTx = (tx: any) => {
+    setEditTx(tx)
+    setEditTxAmount(((tx.amount || 0) / 100).toString())
+    setEditTxDesc(tx.description || '')
+    setEditTxDate(tx.date ? format(new Date(tx.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'))
+  }
+
+  const handleSaveEditTx = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editTx) return
+    try {
+      await updateTransaction.mutateAsync({
+        transactionId: editTx.id,
+        data: {
+          amount: Math.round(Number(editTxAmount) * 100),
+          description: editTxDesc,
+          date: editTxDate + 'T12:00:00.000Z'
+        }
+      })
+      setEditTx(null)
+      toast({ title: 'Success', description: 'Transaction updated successfully' })
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message || 'Update failed', variant: 'destructive' })
+    }
+  }
+
+  const handleDeleteTx = async (tx: any) => {
+    let warningMsg = `Are you sure you want to delete this transaction of Rs ${((tx.amount || 0) / 100).toLocaleString()}?`
+    
+    if (tx.reference_type === 'sale') {
+      warningMsg = `⚠️ WARNING: This is a cash transaction for Sale ${tx.description || ''}. Deleting this will completely VOID the entire Sale invoice and return items to stock. Are you sure?`
+    } else if (tx.reference_type === 'purchase') {
+      warningMsg = `⚠️ WARNING: This is a cash transaction for Purchase ${tx.description || ''}. Deleting this will completely VOID the entire Purchase invoice and remove items from stock. Are you sure?`
+    } else if (tx.reference_type === 'payment') {
+      warningMsg = `⚠️ WARNING: This is a Payment record. Deleting this will reverse the payment, un-pay any linked invoices, and update the party's balance. Are you sure?`
+    } else if (tx.reference_type === 'expense') {
+      warningMsg = `Are you sure you want to delete this Expense? The amount will be refunded to your account.`
+    } else {
+      const label = tx.reference_type === 'capital' ? 'Capital Investment' : tx.reference_type === 'withdrawal' ? 'Capital Withdrawal' : 'Transfer'
+      warningMsg = `Are you sure you want to delete this ${label}? This will reverse the account balance. This action cannot be undone.`
+    }
+
+    setDeleteConfirm({ open: true, tx, message: warningMsg })
+  }
+
+  const confirmDeleteTx = async () => {
+    if (!deleteConfirm?.tx) return
+    try {
+      await deleteTransaction.mutateAsync(deleteConfirm.tx.id)
+      toast({ title: 'Deleted', description: `Transaction deleted successfully.` })
+      setDeleteConfirm(null)
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message || 'Delete failed', variant: 'destructive' })
     }
   }
 
@@ -171,6 +310,10 @@ export default function AccountsPage() {
         return <Badge className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20 font-medium">Transfer</Badge>
       case 'adjustment':
         return <Badge className="bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20 font-medium">Adjustment</Badge>
+      case 'capital':
+        return <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 font-medium">💰 Capital Investment</Badge>
+      case 'withdrawal':
+        return <Badge className="bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 font-medium">💸 Owner Withdrawal</Badge>
       default:
         return <Badge variant="outline" className="capitalize font-medium">{refType || 'General'}</Badge>
     }
@@ -188,6 +331,12 @@ export default function AccountsPage() {
         <div className="flex items-center gap-3">
           <Button variant="outline" onClick={() => setIsCreateAccountOpen(true)} className="gap-2 shadow-sm">
             <Plus className="w-4 h-4" /> Add Account
+          </Button>
+          <Button variant="outline" onClick={() => setIsCapitalInvestOpen(true)} className="gap-2 shadow-sm bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800">
+            <TrendingUp className="w-4 h-4" /> Add Capital
+          </Button>
+          <Button variant="outline" onClick={() => setIsCapitalWithdrawOpen(true)} className="gap-2 shadow-sm bg-rose-50 hover:bg-rose-100 dark:bg-rose-950 dark:hover:bg-rose-900 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800">
+            <TrendingDown className="w-4 h-4" /> Withdraw
           </Button>
           <Button onClick={() => setIsTransferModalOpen(true)} className="gap-2 shadow-sm">
             <ArrowRightLeft className="w-4 h-4" /> Transfer Funds
@@ -392,19 +541,20 @@ export default function AccountsPage() {
                 <TableHead className="w-[140px] text-[11px] font-bold uppercase tracking-wider">Category</TableHead>
                 <TableHead className="text-[11px] font-bold uppercase tracking-wider">Description / Notes</TableHead>
                 <TableHead className="text-right w-[140px] text-[11px] font-bold uppercase tracking-wider">Amount</TableHead>
-                <TableHead className="w-[120px] text-[11px] font-bold uppercase tracking-wider">User</TableHead>
+                <TableHead className="w-[100px] text-[11px] font-bold uppercase tracking-wider">User</TableHead>
+                <TableHead className="w-[80px] text-[11px] font-bold uppercase tracking-wider text-center">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoadingCashBook ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                     Loading cash book transactions...
                   </TableCell>
                 </TableRow>
               ) : transactionsList.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                     No transactions found matching your filters.
                   </TableCell>
                 </TableRow>
@@ -450,6 +600,20 @@ export default function AccountsPage() {
                       <TableCell className="text-xs text-muted-foreground">
                         {tx.created_by_name || 'Admin'}
                       </TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          {['capital', 'withdrawal', 'transfer'].includes(tx.reference_type) ? (
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={() => handleOpenEditTx(tx)} title="Edit">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Button>
+                          ) : (
+                            <span className="w-7"></span>
+                          )}
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleDeleteTx(tx)} title="Delete">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   )
                 })
@@ -489,7 +653,7 @@ export default function AccountsPage() {
 
       {/* Add Account Modal */}
       <Dialog open={isCreateAccountOpen} onOpenChange={setIsCreateAccountOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add New Account</DialogTitle>
             <DialogDescription>
@@ -551,7 +715,7 @@ export default function AccountsPage() {
 
       {/* Transfer Funds Modal */}
       <Dialog open={isTransferModalOpen} onOpenChange={setIsTransferModalOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Transfer Funds</DialogTitle>
             <DialogDescription>
@@ -619,6 +783,20 @@ export default function AccountsPage() {
                 value={transferDesc}
                 onChange={(e) => setTransferDesc(e.target.value)}
               />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-1.5">
+                <CalendarDays className="w-4 h-4 text-primary" /> Transfer Date
+              </label>
+              <input
+                type="date"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                value={transferDate}
+                onChange={(e) => setTransferDate(e.target.value)}
+                max={format(new Date(), 'yyyy-MM-dd')}
+              />
+              <p className="text-xs text-muted-foreground italic">Defaults to today. Change to backdate this transfer.</p>
             </div>
 
             <DialogFooter className="pt-4 border-t mt-4">
@@ -737,6 +915,264 @@ export default function AccountsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Capital Investment Modal */}
+      <Dialog open={isCapitalInvestOpen} onOpenChange={setIsCapitalInvestOpen}>
+        <DialogContent className="sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-emerald-600" />
+              Add Capital Investment
+            </DialogTitle>
+            <DialogDescription>
+              Invest personal money into your business. This increases your account balance and represents owner's equity.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCapitalInvest} className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Deposit Into Account</label>
+              <select 
+                className="w-full h-10 bg-background border border-border rounded-md px-3 focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                value={investAccount}
+                onChange={(e) => setInvestAccount(Number(e.target.value) || '')}
+                required
+              >
+                <option value="" disabled>Select account to receive capital...</option>
+                {accounts.map((a: any) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} (Current: {formatMoney(a.current_balance)})
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Choose which account will receive your investment (usually Cash in Hand or Bank).
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Investment Amount (Rs)</label>
+              <Input 
+                type="number" 
+                value={investAmount}
+                onChange={(e) => setInvestAmount(e.target.value)}
+                placeholder="0.00" 
+                min="1"
+                required 
+              />
+              {Number(investAmount) > 0 && (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 italic mt-1">
+                  {numberToWords(Number(investAmount))}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Notes / Purpose (Optional)</label>
+              <Input
+                placeholder="e.g. Initial capital, Additional investment..."
+                value={investDesc}
+                onChange={(e) => setInvestDesc(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-1.5">
+                <CalendarDays className="w-4 h-4 text-emerald-600" /> Investment Date
+              </label>
+              <input
+                type="date"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                value={investDate}
+                onChange={(e) => setInvestDate(e.target.value)}
+                max={format(new Date(), 'yyyy-MM-dd')}
+              />
+              <p className="text-xs text-muted-foreground italic">Defaults to today. Change to backdate this investment.</p>
+            </div>
+
+            <div className="bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3">
+              <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                <strong>Effect:</strong> This will add Rs {investAmount || '0'} to your selected account and record it as "Capital Investment" in your cash book. This represents your personal investment in the business.
+              </p>
+            </div>
+
+            <DialogFooter className="pt-4 border-t mt-4">
+              <Button type="button" variant="outline" onClick={() => setIsCapitalInvestOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700">
+                Confirm Investment
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Capital Withdrawal Modal */}
+      <Dialog open={isCapitalWithdrawOpen} onOpenChange={setIsCapitalWithdrawOpen}>
+        <DialogContent className="sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <TrendingDown className="w-5 h-5 text-rose-600" />
+              Withdraw Capital
+            </DialogTitle>
+            <DialogDescription>
+              Withdraw money from your business for personal use. This reduces your account balance.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCapitalWithdraw} className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Withdraw From Account</label>
+              <select 
+                className="w-full h-10 bg-background border border-border rounded-md px-3 focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                value={withdrawAccount}
+                onChange={(e) => setWithdrawAccount(Number(e.target.value) || '')}
+                required
+              >
+                <option value="" disabled>Select source account...</option>
+                {accounts.map((a: any) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} (Available: {formatMoney(a.current_balance)})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Withdrawal Amount (Rs)</label>
+              <Input 
+                type="number" 
+                value={withdrawAmount}
+                onChange={(e) => setWithdrawAmount(e.target.value)}
+                placeholder="0.00" 
+                min="1"
+                required 
+              />
+              {Number(withdrawAmount) > 0 && (
+                <p className="text-xs text-rose-600 dark:text-rose-400 italic mt-1">
+                  {numberToWords(Number(withdrawAmount))}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Notes / Reason (Optional)</label>
+              <Input
+                placeholder="e.g. Personal expense, Salary..."
+                value={withdrawDesc}
+                onChange={(e) => setWithdrawDesc(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-1.5">
+                <CalendarDays className="w-4 h-4 text-rose-600" /> Withdrawal Date
+              </label>
+              <input
+                type="date"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+                value={withdrawDate}
+                onChange={(e) => setWithdrawDate(e.target.value)}
+                max={format(new Date(), 'yyyy-MM-dd')}
+              />
+              <p className="text-xs text-muted-foreground italic">Defaults to today. Change to backdate this withdrawal.</p>
+            </div>
+
+            <div className="bg-rose-50 dark:bg-rose-950 border border-rose-200 dark:border-rose-800 rounded-lg p-3">
+              <p className="text-xs text-rose-700 dark:text-rose-400">
+                <strong>Effect:</strong> This will deduct Rs {withdrawAmount || '0'} from your selected account and record it as "Capital Withdrawal" in your cash book. Make sure you have sufficient balance.
+              </p>
+            </div>
+
+            <DialogFooter className="pt-4 border-t mt-4">
+              <Button type="button" variant="outline" onClick={() => setIsCapitalWithdrawOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" className="bg-rose-600 hover:bg-rose-700">
+                Confirm Withdrawal
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Transaction Modal */}
+      <Dialog open={!!editTx} onOpenChange={(open) => !open && setEditTx(null)}>
+        <DialogContent className="sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="w-5 h-5 text-primary" />
+              Edit {editTx?.reference_type === 'capital' ? 'Capital Investment' : editTx?.reference_type === 'withdrawal' ? 'Capital Withdrawal' : 'Transfer'}
+            </DialogTitle>
+            <DialogDescription>
+              Update the amount, description, or date of this transaction. Account balances will be adjusted automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSaveEditTx} className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Account</label>
+              <Input value={editTx?.account_name || ''} disabled className="bg-muted" />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Amount (Rs)</label>
+              <Input 
+                type="number" 
+                value={editTxAmount}
+                onChange={(e) => setEditTxAmount(e.target.value)}
+                placeholder="0.00" 
+                min="1"
+                required 
+              />
+              {Number(editTxAmount) > 0 && (
+                <p className="text-xs text-muted-foreground italic">
+                  {numberToWords(Number(editTxAmount))}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Description</label>
+              <Input
+                placeholder="Notes..."
+                value={editTxDesc}
+                onChange={(e) => setEditTxDesc(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-1.5">
+                <CalendarDays className="w-4 h-4 text-primary" /> Date
+              </label>
+              <input
+                type="date"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                value={editTxDate}
+                onChange={(e) => setEditTxDate(e.target.value)}
+                max={format(new Date(), 'yyyy-MM-dd')}
+              />
+            </div>
+
+            <DialogFooter className="pt-4 border-t mt-4">
+              <Button type="button" variant="outline" onClick={() => setEditTx(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={updateTransaction.isPending}>
+                {updateTransaction.isPending ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      
+      {deleteConfirm && (
+        <ConfirmDialog 
+          open={deleteConfirm.open} 
+          onOpenChange={(o) => !o && setDeleteConfirm(null)}
+          title="Delete Transaction"
+          description={deleteConfirm.message}
+          onConfirm={confirmDeleteTx}
+        />
+      )}
     </div>
   )
 }

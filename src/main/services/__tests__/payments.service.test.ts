@@ -39,8 +39,8 @@ describe('Payments Service Integration', () => {
     }
 
     const result = await recordPayment(1, input)
-    expect(result.payment).toBeDefined()
-    expect(result.payment.amount).toBe(2000)
+    expect(result).toBeDefined()
+    expect(result.amount).toBe(2000)
 
     // 1. Verify Customer Balance decreased (Owes 5000 - 2000 = 3000)
     const updatedCustomer = await db.selectFrom('customers').where('id', '=', customerId).selectAll().executeTakeFirst()
@@ -53,7 +53,7 @@ describe('Payments Service Integration', () => {
     // 3. Verify Account Transaction
     const txn = await db.selectFrom('account_transactions')
       .where('reference_type', '=', 'payment')
-      .where('reference_id', '=', result.payment.id)
+      .where('reference_id', '=', result.id)
       .selectAll()
       .executeTakeFirst()
       

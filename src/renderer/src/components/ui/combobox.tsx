@@ -48,6 +48,12 @@ export function Combobox({
   const [open, setOpen] = React.useState(false)
   const [inputValue, setInputValue] = React.useState("")
 
+  const filteredOptions = React.useMemo(() => {
+    if (!inputValue) return options;
+    const lowerValue = inputValue.toLowerCase();
+    return options.filter(o => o.label.toLowerCase().includes(lowerValue));
+  }, [options, inputValue]);
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -56,16 +62,18 @@ export function Combobox({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
-          className={cn("w-full justify-between font-normal", className, !value && "text-muted-foreground")}
+          className={cn("w-full justify-between font-normal min-w-0 overflow-hidden", className, !value && "text-muted-foreground")}
         >
-          {value
-            ? options.find((framework) => framework.value === value)?.label || value
-            : placeholder}
+          <span className="truncate text-left block w-full overflow-hidden whitespace-nowrap">
+            {value
+              ? options.find((framework) => framework.value === value)?.label || value
+              : placeholder}
+          </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-full p-0" align="start">
-        <Command>
+        <Command shouldFilter={false}>
           <CommandInput 
             placeholder={`Search...`} 
             value={inputValue}
@@ -96,10 +104,11 @@ export function Combobox({
                   Use "{inputValue}"
                 </CommandItem>
               )}
-              {options.map((option) => (
+              {filteredOptions.map((option) => (
                 <CommandItem
                   key={option.value}
                   value={option.value}
+                  keywords={[option.label]}
                   onSelect={(currentValue) => {
                     onChange(currentValue === value ? "" : currentValue)
                     setOpen(false)

@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { useCreateSaleReturn, useSaleReturns } from '../../hooks/useSales'
 import { useAccounts } from '../../hooks/useAccounts'
 import { RefreshCcw } from 'lucide-react'
+import { toast } from '@/hooks/use-toast'
 
 export function SaleReturnDialog({ sale, items, open, onOpenChange }: { sale: any, items: any[], open: boolean, onOpenChange: (o: boolean) => void }) {
   const [returnQty, setReturnQty] = useState<Record<number, number>>({})
@@ -39,12 +40,31 @@ export function SaleReturnDialog({ sale, items, open, onOpenChange }: { sale: an
   const creditAmount = Math.max(0, totalReturnValue - (refundAmount * 100))
 
   const handleSubmit = () => {
-    const itemsToReturn = Object.entries(returnQty)
-      .map(([saleItemId, qty]) => ({ sale_item_id: Number(saleItemId), qty }))
-      .filter(i => i.qty > 0)
+    const itemsToReturn: { sale_item_id: number, qty: number }[] = []
 
-    if (itemsToReturn.length === 0) return alert('Enter at least 1 item to return.')
-    if (refundAmount > 0 && !accountId) return alert('Select an account for cash refund.')
+    items.forEach(item => {
+      let remainingToReturn = returnQty[item.id] || 0;
+      if (remainingToReturn <= 0) return;
+
+      // Grouped items have multiple original_items to split the return across
+      const origItems = item.original_items || [{ id: item.id, qty: item.qty }];
+      
+      for (const orig of origItems) {
+        if (remainingToReturn <= 0) break;
+        
+        const previouslyReturned = getPreviouslyReturned(orig.id);
+        const available = orig.qty - previouslyReturned;
+        
+        const returnForOrig = Math.min(remainingToReturn, available);
+        if (returnForOrig > 0) {
+          itemsToReturn.push({ sale_item_id: orig.id, qty: returnForOrig });
+          remainingToReturn -= returnForOrig;
+        }
+      }
+    })
+
+    if (itemsToReturn.length === 0) { toast({ title: 'Enter at least 1 item to return.', variant: 'destructive' }); return }
+    if (refundAmount > 0 && !accountId) { toast({ title: 'Select an account for cash refund.', variant: 'destructive' }); return }
 
     createReturn.mutate({
       sale_id: sale.id,
@@ -60,14 +80,14 @@ export function SaleReturnDialog({ sale, items, open, onOpenChange }: { sale: an
         onOpenChange(false)
       },
       onError: (err: any) => {
-        alert(err.message)
+        toast({ title: err.message, variant: 'destructive' })
       }
     })
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[700px]">
+      <DialogContent className="max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Process Return for {sale.invoice_no}</DialogTitle>
           <DialogDescription>Enter quantities to return. Returned items will be added back to stock.</DialogDescription>
@@ -86,12 +106,22 @@ export function SaleReturnDialog({ sale, items, open, onOpenChange }: { sale: an
             </thead>
             <tbody>
               {items.map(item => {
-                const prevReturned = getPreviouslyReturned(item.id)
-                const available = item.qty - prevReturned
+                const origItems = item.original_items || [{ id: item.id, qty: item.qty }];
+                let prevReturned = 0;
+                for (const orig of origItems) {
+                  prevReturned += getPreviouslyReturned(orig.id);
+                }
+                
+                const available = item.qty - prevReturned;
                 const currentReturn = returnQty[item.id] || 0
+                const itemSize = item.item_size || ''
+                const itemPkg = item.item_packaging || ''
                 return (
                   <tr key={item.id} className="border-b">
-                    <td className="py-2">{item.item_name || `Item #${item.item_id}`}</td>
+                    <td className="py-2">
+                      <div className="font-medium">{item.item_name || `Item #${item.item_id}`}</div>
+                      {(itemSize || itemPkg) && <div className="text-xs text-muted-foreground">{[itemSize, itemPkg].filter(Boolean).join(' • ')}</div>}
+                    </td>
                     <td className="py-2 text-center">{item.qty}</td>
                     <td className="py-2 text-center text-muted-foreground">{prevReturned}</td>
                     <td className="py-2 flex justify-center">
@@ -122,38 +152,49 @@ export function SaleReturnDialog({ sale, items, open, onOpenChange }: { sale: an
               <span>{formatMoney(totalReturnValue)}</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-4">
               <div>
-                <label className="text-xs font-semibold mb-1 block">Cash Refund (Rs)</label>
-                <Input 
-                  type="number" 
-                  min="0"
-                  max={totalReturnValue / 100}
-                  value={refundAmount || ''}
-                  onChange={e => setRefundAmount(Math.min(totalReturnValue / 100, Math.max(0, Number(e.target.value))))}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold mb-1 block">Credit to Customer Account</label>
-                <div className="h-10 flex items-center font-mono font-bold text-lg">
-                  {formatMoney(creditAmount)}
-                </div>
-              </div>
-            </div>
-
-            {refundAmount > 0 && (
-              <div>
-                <label className="text-xs font-semibold mb-1 block">Refund From Account</label>
+                <label className="text-xs font-semibold mb-1 block">Refund From Account (Optional if fully credited)</label>
                 <select 
                   className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
                   value={accountId}
-                  onChange={e => setAccountId(e.target.value)}
+                  onChange={e => {
+                    setAccountId(e.target.value)
+                    if (!e.target.value) setRefundAmount(0)
+                  }}
                 >
-                  <option value="" disabled>Select Account...</option>
-                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  <option value="">-- No Cash Refund --</option>
+                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name} (Rs {a.current_balance ? (a.current_balance / 100).toLocaleString() : 0})</option>)}
                 </select>
               </div>
-            )}
+
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label className="text-xs font-semibold mb-1 block">Cash Refund (Rs)</label>
+                  <Input 
+                    type="number" 
+                    min="0"
+                    max={Math.min(totalReturnValue / 100, accountId ? (accounts.find(a => a.id === Number(accountId))?.current_balance || 0) / 100 : Infinity)}
+                    value={refundAmount || ''}
+                    onChange={e => {
+                      const val = Number(e.target.value)
+                      const max = Math.min(totalReturnValue / 100, accountId ? (accounts.find(a => a.id === Number(accountId))?.current_balance || 0) / 100 : Infinity)
+                      setRefundAmount(val > max ? max : Math.max(0, val))
+                    }}
+                    disabled={!accountId}
+                  />
+                  {accountId && refundAmount >= (accounts.find(a => a.id === Number(accountId))?.current_balance || 0) / 100 && refundAmount > 0 && (
+                    <p className="text-xs text-destructive mt-1">Maximum available balance reached</p>
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs font-semibold mb-1 block">Credit to Customer Account</label>
+                  <div className="h-10 flex items-center font-mono font-bold text-lg">
+                    {formatMoney(creditAmount)}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

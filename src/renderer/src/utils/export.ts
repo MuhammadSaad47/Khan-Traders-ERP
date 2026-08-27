@@ -1,6 +1,8 @@
+import { toast } from '@/hooks/use-toast'
+
 export function downloadCSV(data: any[], filename: string) {
   if (!data || data.length === 0) {
-    alert('No data to export.');
+    toast({ title: 'No data to export.', variant: 'destructive' });
     return;
   }
 

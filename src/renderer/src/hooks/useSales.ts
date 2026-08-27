@@ -1,10 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/auth.store'
 
-export function useSales() {
+export function useSales(page = 1, limit = 50, filters?: any) {
   return useQuery({
-    queryKey: ['sales'],
-    queryFn: async () => await window.api.sales.getSales()
+    queryKey: ['sales', page, limit, filters],
+    queryFn: async () => await window.api.sales.getSales(page, limit, filters)
   })
 }
 
@@ -59,6 +59,7 @@ export function useCreateSale() {
       queryClient.invalidateQueries({ queryKey: ['sales'] })
       queryClient.invalidateQueries({ queryKey: ['items'] }) // Invalidate inventory stock
       queryClient.invalidateQueries({ queryKey: ['customers'] }) // Invalidate balances
+      queryClient.invalidateQueries({ queryKey: ['accounts'] }) // Invalidate account balances
     }
   })
 }
@@ -74,6 +75,7 @@ export function useUpdateSale() {
       queryClient.invalidateQueries({ queryKey: ['sales', variables.saleId] })
       queryClient.invalidateQueries({ queryKey: ['items'] })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
     }
   })
 }

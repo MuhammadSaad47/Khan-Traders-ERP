@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Search, ShoppingBag, PackagePlus, Trash2, Download } from 'lucide-react'
+import { Search, ShoppingBag, PackagePlus, Trash2, Download, CalendarDays, CalendarIcon } from 'lucide-react'
+import { format, subDays } from 'date-fns'
 import html2pdf from 'html2pdf.js'
 import logo from '../../assets/logo_color.png'
 import Barcode from 'react-barcode'
@@ -15,6 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { Combobox } from '../../components/ui/combobox'
 import { numberToWords } from '../../lib/numberToWords'
 import { useToast } from '@/hooks/use-toast'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   Table,
   TableBody,
@@ -30,10 +32,13 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { format } from 'date-fns'
 
 export default function PurchasesPage() {
-  const { data: purchases = [], isLoading } = usePurchases()
+  const [dateRange, setDateRange] = useState({ 
+    from: format(subDays(new Date(), 30), 'yyyy-MM-dd'), 
+    to: format(new Date(), 'yyyy-MM-dd') 
+  })
+  const { data: purchases = [], isLoading } = usePurchases(1, 500, { fromDate: dateRange.from, toDate: dateRange.to })
   const { data: suppliers = [] } = useSuppliers()
   const { data: items = [] } = useItems()
   const { data: accounts = [] } = useAccounts()
@@ -56,6 +61,7 @@ export default function PurchasesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editPurchaseId, setEditPurchaseId] = useState<number | null>(null)
   const [viewPurchaseId, setViewPurchaseId] = useState<number | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<{open: boolean, id: number} | null>(null)
   
   const updatePurchase = useUpdatePurchase()
   const deleteOverheads = useDeletePurchaseOverheads()
@@ -71,6 +77,7 @@ export default function PurchasesPage() {
 
   const [supplierId, setSupplierId] = useState<string>('')
   const [accountId, setAccountId] = useState<number | ''>('')
+  const [purchaseDate, setPurchaseDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
   const [purchaseItems, setPurchaseItems] = useState<{item_id: number, qty: number, unit_cost: number}[]>([])
   const [discount, setDiscount] = useState<number>(0)
   const [paidAmount, setPaidAmount] = useState<number>(0)
@@ -83,42 +90,49 @@ export default function PurchasesPage() {
   const [filterVariant, setFilterVariant] = useState('')
 
   // Compute Cascading Options
+  const filteredDropdownItems = useMemo(() => {
+    return supplierId ? items.filter((i: any) => i.supplier_id?.toString() === supplierId) : items;
+  }, [items, supplierId])
+
   const nameOptions = useMemo(() => {
     const names = new Set<string>()
-    items.forEach((i: any) => i.name && names.add(i.name))
+    filteredDropdownItems.forEach((i: any) => i.name && names.add(i.name))
     return Array.from(names).map(n => ({ value: n, label: n }))
-  }, [items])
+  }, [filteredDropdownItems])
 
   const sizeOptions = useMemo(() => {
     if (!filterName) return []
     const sizes = new Set<string>()
-    items.forEach((i: any) => {
+    filteredDropdownItems.forEach((i: any) => {
       if (i.name === filterName && i.size) sizes.add(i.size)
     })
     return Array.from(sizes).map(s => ({ value: s, label: s }))
-  }, [items, filterName])
+  }, [filteredDropdownItems, filterName])
 
   const pkgOptions = useMemo(() => {
     if (!filterName) return []
     const pkgs = new Set<string>()
-    items.forEach((i: any) => {
+    filteredDropdownItems.forEach((i: any) => {
       if (i.name === filterName && (!filterSize || i.size === filterSize) && i.packaging) {
         pkgs.add(i.packaging)
       }
     })
     return Array.from(pkgs).map(p => ({ value: p, label: p }))
-  }, [items, filterName, filterSize])
+  }, [filteredDropdownItems, filterName, filterSize])
 
   const variantOptions = useMemo(() => {
     if (!filterName) return []
+    const filteredCatalogItems = filteredDropdownItems.filter((i: any) => {
+      return (!filterName || i.name === filterName) &&
+             (!filterSize || i.size === filterSize) &&
+             (!filterPkg || i.packaging === filterPkg)
+    })
     const variants = new Set<string>()
-    items.forEach((i: any) => {
-      if (i.name === filterName && (!filterSize || i.size === filterSize) && (!filterPkg || i.packaging === filterPkg) && i.variant) {
-        variants.add(i.variant)
-      }
+    filteredCatalogItems.forEach((i: any) => {
+      if (i.variant) variants.add(i.variant)
     })
     return Array.from(variants).map(v => ({ value: v, label: v }))
-  }, [items, filterName, filterSize, filterPkg])
+  }, [filteredDropdownItems, filterName, filterSize, filterPkg])
 
   // Cascading Resets
   useEffect(() => {
@@ -158,7 +172,7 @@ export default function PurchasesPage() {
     if (!itemId) return
     const item = items.find((i: any) => i.id === itemId)
     if (!item) return
-    setPurchaseItems([...purchaseItems, { item_id: itemId, qty: 1, unit_cost: item.cost_price || 0 }])
+    setPurchaseItems([...purchaseItems, { item_id: itemId, qty: 0, unit_cost: item.cost_price || 0 }])
   }
 
   const handleUpdateItem = (index: number, field: 'qty' | 'unit_cost', value: number) => {
@@ -193,7 +207,7 @@ export default function PurchasesPage() {
   const handleSavePurchase = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!supplierId || purchaseItems.length === 0) return
-    if (!editPurchaseId && paidAmount > 0 && !accountId) return alert('Select an account for the payment')
+    if (paidAmount > 0 && !accountId) { toast({ title: 'Select an account for the payment', variant: 'destructive' }); return }
 
     try {
       let final_supplier_id = supplierId ? (isNaN(Number(supplierId)) ? undefined : parseInt(supplierId)) : undefined
@@ -203,7 +217,7 @@ export default function PurchasesPage() {
         final_supplier_id = newSup.id
       }
       
-      if (!final_supplier_id) return alert('Supplier could not be determined')
+      if (!final_supplier_id) { toast({ title: 'Supplier could not be determined', variant: 'destructive' }); return }
 
       if (editPurchaseId) {
         await updatePurchase.mutateAsync({
@@ -243,6 +257,7 @@ export default function PurchasesPage() {
                 category_id: final_cat_id,
                 amount: oh.amount * 100,
                 account_id: oh.account_id,
+                date: purchaseDate + 'T12:00:00.000Z',
                 note: `[PUR-REF:${editPurchaseId}] ${searchTerm /* fallback */} Overhead Cost`
               })
             }
@@ -257,6 +272,7 @@ export default function PurchasesPage() {
           paid_amount: paidAmount * 100,
           payment_method: paidAmount > 0 ? 'cash' : undefined,
           account_id: paidAmount > 0 ? Number(accountId) : undefined,
+          date: purchaseDate + 'T12:00:00.000Z',
           items: purchaseItems.map(i => ({
             item_id: i.item_id,
             qty: i.qty,
@@ -283,6 +299,7 @@ export default function PurchasesPage() {
                 category_id: final_cat_id,
                 amount: oh.amount * 100,
                 account_id: oh.account_id,
+                date: purchaseDate + 'T12:00:00.000Z',
                 note: `[PUR-REF:${purchase.id}] ${purchase.invoice_no} Overhead Cost`
               })
             }
@@ -332,7 +349,26 @@ export default function PurchasesPage() {
     setSupplierId(detailsData.purchase.supplier_id?.toString() || '')
     setDiscount(detailsData.purchase.discount / 100)
     setPaidAmount(detailsData.purchase.paid_amount / 100)
-    setAccountId('') // Force user to re-select account if they change paid amount
+    
+    // Try to load the account_id from existing payment records
+    let existingAccountId: number | '' = ''
+    if (detailsData.purchase.paid_amount > 0) {
+      try {
+        const paymentsResponse = await window.api.payments.getAll(1, 100, {}) as any
+        const linkedPayment = (paymentsResponse?.payments || paymentsResponse || []).find(
+          (pay: any) => pay.reference_type === 'purchase' && pay.reference_id === p.id
+        )
+        if (linkedPayment?.account_id) {
+          existingAccountId = linkedPayment.account_id
+        }
+      } catch { /* fallback: user re-selects */ }
+    }
+    setAccountId(existingAccountId)
+    
+    // Load existing purchase date
+    if (detailsData.purchase.date) {
+      setPurchaseDate(format(new Date(detailsData.purchase.date), 'yyyy-MM-dd'))
+    }
     
     setPurchaseItems(detailsData.items.map((i: any) => ({
       item_id: i.item_id,
@@ -368,11 +404,13 @@ export default function PurchasesPage() {
   const supplierOptions = suppliers.map((s: any) => ({ value: s.id.toString(), label: s.name }))
 
   const filteredCatalogItems = items.filter((item: any) => {
+    // Only show items for the selected supplier (or no filter if supplier not selected)
+    const matchesSupplier = supplierId ? item.supplier_id === parseInt(supplierId) : true
     const matchesName = filterName ? item.name === filterName : true
     const matchesSize = filterSize ? item.size === filterSize : true
     const matchesPkg = filterPkg ? item.packaging === filterPkg : true
     const matchesVariant = filterVariant ? item.variant === filterVariant : true
-    return matchesName && matchesSize && matchesPkg && matchesVariant
+    return matchesSupplier && matchesName && matchesSize && matchesPkg && matchesVariant
   })
 
   const filteredPurchases = purchases.filter((p: any) => 
@@ -400,6 +438,7 @@ export default function PurchasesPage() {
             setFilterSize('')
             setFilterPkg('')
             setFilterVariant('')
+            setPurchaseDate(format(new Date(), 'yyyy-MM-dd'))
             setIsModalOpen(true)
           }}>
             <PackagePlus className="w-4 h-4" /> Record Purchase
@@ -407,14 +446,31 @@ export default function PurchasesPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-4 bg-surface p-4 rounded-xl border shadow-sm mb-6">
-        <div className="relative flex-1">
+      <div className="flex flex-wrap items-center gap-4 bg-surface p-4 rounded-xl border shadow-sm mb-6">
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input 
             placeholder="Search by invoice number or supplier..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-9 bg-background/50 border-0 shadow-none ring-1 ring-inset ring-border/50 focus-visible:ring-2 focus-visible:ring-primary"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 bg-background/50 p-1.5 rounded-lg border shadow-sm text-sm">
+          <CalendarIcon className="w-4 h-4 text-muted-foreground ml-2" />
+          <input 
+            type="date" 
+            className="bg-transparent focus:outline-none border-none text-muted-foreground cursor-pointer"
+            value={dateRange.from}
+            onChange={(e) => setDateRange(prev => ({ ...prev, from: e.target.value }))}
+          />
+          <span className="text-muted-foreground">to</span>
+          <input 
+            type="date" 
+            className="bg-transparent focus:outline-none border-none text-muted-foreground cursor-pointer mr-1"
+            value={dateRange.to}
+            onChange={(e) => setDateRange(prev => ({ ...prev, to: e.target.value }))}
           />
         </div>
       </div>
@@ -485,8 +541,24 @@ export default function PurchasesPage() {
           <DialogHeader>
             <DialogTitle>{editPurchaseId ? 'Edit Purchase' : 'Record Purchase'}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSavePurchase} className="flex-1 flex flex-col overflow-hidden py-4 gap-4">
-            <div className="bg-muted/30 p-4 rounded-xl border border-border space-y-4">
+          <form onSubmit={handleSavePurchase} className="flex-1 flex flex-col overflow-hidden pt-4 gap-0">
+            <div className="flex-1 overflow-y-auto px-1 pb-4 flex flex-col gap-4">
+              <div className="bg-muted/30 p-4 rounded-xl border border-border space-y-4 shrink-0">
+              {/* Transaction Date Picker */}
+              <div className="flex items-center gap-3 pb-3 border-b border-border">
+                <CalendarDays className="w-4 h-4 text-primary shrink-0" />
+                <div className="flex-1">
+                  <label className="text-sm font-semibold block mb-1">Purchase Date</label>
+                  <input
+                    type="date"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    value={purchaseDate}
+                    onChange={(e) => setPurchaseDate(e.target.value)}
+                    max={format(new Date(), 'yyyy-MM-dd')}
+                  />
+                  <p className="text-xs text-muted-foreground italic mt-1">Defaults to today. Change to backdate this purchase.</p>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Supplier</label>
@@ -545,7 +617,7 @@ export default function PurchasesPage() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto border rounded-md p-2 space-y-2 min-h-[200px]">
+            <div className="border rounded-md p-2 space-y-2 min-h-[200px] shrink-0">
               {purchaseItems.length === 0 && <div className="text-muted-foreground text-sm text-center py-8">No items added to purchase yet.</div>}
               {purchaseItems.map((pi, idx) => {
                 const item = items.find((i: any) => i.id === pi.item_id)
@@ -556,13 +628,14 @@ export default function PurchasesPage() {
                       {item?.size && <span className="text-muted-foreground text-xs font-normal border px-1 rounded bg-background/50">{item.size}</span>}
                       {item?.packaging && <span className="text-muted-foreground text-xs font-normal border px-1 rounded bg-background/50">{item.packaging}</span>}
                       {item?.variant && <span className="text-muted-foreground text-xs font-normal italic">{item.variant}</span>}
+
                     </div>
                     <div className="flex items-center gap-2">
                       <Input 
                         type="number" min="0" 
-                        value={pi.qty} 
-                        onChange={(e) => handleUpdateQtyByCtns(idx, Number(e.target.value) || 0)} 
-                        className="w-20 h-8 text-center" placeholder="Ctns" title="Ctns"
+                        value={pi.qty === 0 ? '' : pi.qty} 
+                        onChange={(e) => handleUpdateQtyByCtns(idx, e.target.value === '' ? 0 : (Number(e.target.value) || 0))} 
+                        className="w-20 h-8 text-center" placeholder="0" title="Ctns"
                       />
                       
                       <div className="mx-2 text-muted-foreground">x</div>
@@ -581,7 +654,7 @@ export default function PurchasesPage() {
               })}
             </div>
 
-            <div className="pt-2 border-t border-border">
+            <div className="pt-2 border-t border-border shrink-0">
               <div className="flex justify-between items-center mb-2">
                 <h3 className="font-semibold text-sm">Overhead Expenses</h3>
                 <Button type="button" variant="outline" size="sm" onClick={handleAddOverhead}>+ Add Overhead</Button>
@@ -598,50 +671,79 @@ export default function PurchasesPage() {
                         className="h-8 text-sm"
                       />
                     </div>
-                    <Input 
-                      type="number" min="0"
-                      className="w-24 h-8" placeholder="Rs"
-                      value={oh.amount || ''}
-                      onChange={(e) => handleUpdateOverhead(idx, 'amount', Number(e.target.value))}
-                      required
-                    />
                     <select 
                       className="flex-1 h-8 rounded-md border border-input bg-background px-2 text-sm focus-visible:ring-2"
                       value={oh.account_id}
-                      onChange={(e) => handleUpdateOverhead(idx, 'account_id', Number(e.target.value) || '')}
+                      onChange={(e) => {
+                        handleUpdateOverhead(idx, 'account_id', Number(e.target.value) || '')
+                        if (!e.target.value) handleUpdateOverhead(idx, 'amount', 0)
+                      }}
                       required
                     >
                       <option value="" disabled>Account (Paid From)...</option>
-                      {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.name} (Rs {a.current_balance ? (a.current_balance / 100).toLocaleString() : 0})</option>)}
                     </select>
+                    <div className="flex flex-col">
+                      <Input 
+                        type="number" min="0"
+                        max={oh.account_id ? (accounts.find((a: any) => a.id === oh.account_id)?.current_balance || 0) / 100 : undefined}
+                        className="w-24 h-8" placeholder="Rs"
+                        value={oh.amount || ''}
+                        onChange={(e) => {
+                          const val = Number(e.target.value)
+                          const max = oh.account_id ? (accounts.find((a: any) => a.id === oh.account_id)?.current_balance || 0) / 100 : Infinity;
+                          handleUpdateOverhead(idx, 'amount', val > max ? max : val)
+                        }}
+                        disabled={!oh.account_id}
+                        required
+                      />
+                      {oh.account_id && oh.amount >= (accounts.find((a: any) => a.id === oh.account_id)?.current_balance || 0) / 100 && oh.amount > 0 && (
+                        <span className="text-[10px] text-destructive leading-tight mt-1">Max balance</span>
+                      )}
+                    </div>
                     <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleRemoveOverhead(idx)}><Trash2 className="w-4 h-4" /></Button>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 border-t pt-4">
+            <div className="grid grid-cols-2 gap-4 border-t pt-4 shrink-0">
               <div className="space-y-4">
                 <div className="space-y-2">
+                  <label className="text-sm font-medium">Payment Account</label>
+                  <select 
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:ring-2 focus-visible:ring-primary"
+                    value={accountId}
+                    onChange={(e) => {
+                      setAccountId(Number(e.target.value) || '')
+                      if (!e.target.value) setPaidAmount(0)
+                    }}
+                    
+                  >
+                    <option value="">-- Unpaid / Select Account --</option>
+                    {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.name} (Rs {a.current_balance ? (a.current_balance / 100).toLocaleString() : 0})</option>)}
+                  </select>
+                </div>
+                <div className="space-y-2">
                   <label className="text-sm font-medium">Paid Amount (Rs)</label>
-                  <Input type="number" value={paidAmount || ''} onChange={(e) => setPaidAmount(Number(e.target.value))} placeholder="0.00" disabled={!!editPurchaseId} />
+                  <Input 
+                    type="number" 
+                    value={paidAmount || ''} 
+                    onChange={(e) => {
+                      const val = Number(e.target.value)
+                      const max = accountId ? (accounts.find((a: any) => a.id === accountId)?.current_balance || 0) / 100 : Infinity;
+                      setPaidAmount(val > max ? max : val)
+                    }} 
+                    placeholder="0.00" 
+                    disabled={accountId === ''} 
+                    min="0" 
+                    max={accountId ? (accounts.find((a: any) => a.id === accountId)?.current_balance || 0) / 100 : undefined}
+                  />
+                  {accountId && paidAmount >= (accounts.find((a: any) => a.id === accountId)?.current_balance || 0) / 100 && paidAmount > 0 && (
+                    <p className="text-xs text-destructive">Maximum available balance reached</p>
+                  )}
                   {paidAmount > 0 && <p className="text-xs text-muted-foreground italic">{numberToWords(paidAmount)}</p>}
                 </div>
-                {paidAmount > 0 && (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Payment Account</label>
-                    <select 
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:ring-2 focus-visible:ring-primary"
-                      value={accountId}
-                      onChange={(e) => setAccountId(Number(e.target.value) || '')}
-                      required={paidAmount > 0}
-                      disabled={!!editPurchaseId}
-                    >
-                      <option value="" disabled>Select Account...</option>
-                      {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                    </select>
-                  </div>
-                )}
               </div>
               <div className="space-y-2 text-right">
                 <div className="flex justify-between text-sm"><span className="text-muted-foreground">Subtotal:</span> <span>{formatMoney(subtotal)}</span></div>
@@ -659,9 +761,10 @@ export default function PurchasesPage() {
                   </div>
                 )}
               </div>
+              </div>
             </div>
 
-            <DialogFooter className="pt-2">
+            <DialogFooter className="pt-3 pb-4 border-t shrink-0 mt-2 px-1">
               <Button type="button" variant="outline" onClick={() => {
                 setIsModalOpen(false)
                 if (editPurchaseId && initialEditId) navigate('/purchases')
@@ -687,11 +790,7 @@ export default function PurchasesPage() {
                 <h2 className="font-semibold">Consignment Details</h2>
                 <div className="flex gap-2">
                   <Button variant="outline" className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20" onClick={() => {
-                    if (confirm('Are you sure you want to void this purchase? This will revert stock and financial records. This action cannot be undone.')) {
-                      voidPurchase.mutate(details.id, {
-                        onSuccess: () => setViewPurchaseId(null)
-                      })
-                    }
+                    setDeleteConfirm({ open: true, id: details.id })
                   }} disabled={voidPurchase.isPending}>
                     <Trash2 className="w-4 h-4 mr-2" />
                     {voidPurchase.isPending ? 'Voiding...' : 'Void Purchase'}
@@ -837,6 +936,23 @@ export default function PurchasesPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {deleteConfirm && (
+        <ConfirmDialog 
+          open={deleteConfirm.open} 
+          onOpenChange={(o) => !o && setDeleteConfirm(null)}
+          title="Void Purchase"
+          description="Are you sure you want to void this purchase? This will revert stock and financial records. This action cannot be undone."
+          onConfirm={() => {
+            voidPurchase.mutate(deleteConfirm.id, {
+              onSuccess: () => {
+                setViewPurchaseId(null)
+                setDeleteConfirm(null)
+              }
+            })
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -64,3 +64,11 @@ export function useCloudBackupRestore() {
     mutationFn: async () => await window.api.backup.restore()
   })
 }
+
+export function useCloudBackupDisconnect() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => await window.api.backup.disconnect(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings', 'cloudBackupStatus'] })
+  })
+}

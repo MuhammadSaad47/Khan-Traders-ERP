@@ -7,6 +7,16 @@ type ShortcutMap = {
 export function useKeyboardShortcuts(shortcuts: ShortcutMap) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept shortcuts when user is typing in an input field
+      const target = e.target as HTMLElement
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return
+      }
+
       // Create a string representation of the keypress for matching
       // e.g. "F2", "Ctrl+K", "Escape"
       let keyCombo = ''

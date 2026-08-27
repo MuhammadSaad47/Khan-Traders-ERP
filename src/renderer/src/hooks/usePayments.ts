@@ -8,6 +8,17 @@ export function usePayments(page = 1, limit = 50, filters?: any) {
   })
 }
 
+export function useUnpaidDocuments(partyType: 'customer' | 'supplier' | null, partyId: number | null) {
+  return useQuery({
+    queryKey: ['unpaidDocuments', partyType, partyId],
+    queryFn: async () => {
+      if (!partyType || !partyId) return []
+      return await window.api.payments.getUnpaidDocuments(partyType, partyId)
+    },
+    enabled: !!partyType && !!partyId
+  })
+}
+
 export function useRecordPayment() {
   const queryClient = useQueryClient()
   const userId = useAuthStore(state => state.user?.id)
@@ -18,6 +29,8 @@ export function useRecordPayment() {
       return await window.api.payments.recordPayment(data, userId)
     },
     onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['unpaidDocuments'] })
+      queryClient.invalidateQueries({ queryKey: ['payments'] })
       if (variables.party_type === 'customer') {
         queryClient.invalidateQueries({ queryKey: ['customers'] })
         queryClient.invalidateQueries({ queryKey: ['sales'] })
@@ -46,6 +59,7 @@ export function useVoidPayment() {
       queryClient.invalidateQueries({ queryKey: ['purchases'] })
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
       queryClient.invalidateQueries({ queryKey: ['payments'] })
+      queryClient.invalidateQueries({ queryKey: ['unpaidDocuments'] })
     }
   })
 }

@@ -2,9 +2,9 @@ import { db } from '../db/connection'
 import { sql } from 'kysely'
 
 export async function getComprehensiveReport(startDate: string, endDate: string) {
-  // Normalize date boundaries (e.g., 'YYYY-MM-DD 00:00:00' to 'YYYY-MM-DD 23:59:59')
-  const start = startDate.includes(' ') ? startDate : `${startDate} 00:00:00`
-  const end = endDate.includes(' ') ? endDate : `${endDate} 23:59:59`
+  // Use SQLite date() function to extract date portion from ISO timestamps for proper comparison
+  const start = startDate
+  const end = endDate
 
   // 1. PROFIT & LOSS
   const salesRow = await db.selectFrom('sales')
@@ -14,8 +14,8 @@ export async function getComprehensiveReport(startDate: string, endDate: string)
       db.fn.count<number>('id').as('sales_count')
     ])
     .where('is_deleted', '=', 0)
-    .where('date', '>=', start)
-    .where('date', '<=', end)
+    .where(sql`date(date)`, '>=', start)
+    .where(sql`date(date)`, '<=', end)
     .executeTakeFirst()
 
   const revenue = Number(salesRow?.total_revenue || 0)
@@ -31,8 +31,8 @@ export async function getComprehensiveReport(startDate: string, endDate: string)
       sql<number>`SUM(sale_items.qty)`.as('total_items_sold')
     ])
     .where('sales.is_deleted', '=', 0)
-    .where('sales.date', '>=', start)
-    .where('sales.date', '<=', end)
+    .where(sql`date(sales.date)`, '>=', start)
+    .where(sql`date(sales.date)`, '<=', end)
     .executeTakeFirst()
 
   const cogs = Number(cogsRow?.cogs || 0)
@@ -42,8 +42,8 @@ export async function getComprehensiveReport(startDate: string, endDate: string)
   const expensesRow = await db.selectFrom('expenses')
     .select(db.fn.sum<number>('amount').as('total_expenses'))
     .where('is_deleted', '=', 0)
-    .where('date', '>=', start)
-    .where('date', '<=', end)
+    .where(sql`date(date)`, '>=', start)
+    .where(sql`date(date)`, '<=', end)
     .where('sale_id', 'is', null)
     .where('van_assignment_id', 'is', null)
     .executeTakeFirst()
@@ -57,17 +57,41 @@ export async function getComprehensiveReport(startDate: string, endDate: string)
       sql<number>`SUM(e.amount)`.as('total_amount')
     ])
     .where('e.is_deleted', '=', 0)
-    .where('e.date', '>=', start)
-    .where('e.date', '<=', end)
+    .where(sql`date(e.date)`, '>=', start)
+    .where(sql`date(e.date)`, '<=', end)
     .where('e.sale_id', 'is', null)
     .where('e.van_assignment_id', 'is', null)
     .groupBy('ec.id')
-    .orderBy('total_amount', 'desc')
     .execute()
 
-  const grossProfit = revenue - cogs
+  // Inventory Adjustments (Financial impact)
+  const adjustmentsRow = await db.selectFrom('stock_adjustments')
+    .select([
+      sql<number>`SUM(CASE WHEN change_qty < 0 AND reason IN ('damage', 'expiry', 'theft') THEN total_value ELSE 0 END)`.as('shrinkage_value'),
+      sql<number>`SUM(CASE WHEN change_qty > 0 AND reason = 'recount' THEN total_value ELSE 0 END)`.as('gain_value')
+    ])
+    .where(sql`date(created_at)`, '>=', start)
+    .where(sql`date(created_at)`, '<=', end)
+    .executeTakeFirst()
+
+  const shrinkageValue = Number(adjustmentsRow?.shrinkage_value || 0)
+  const gainValue = Number(adjustmentsRow?.gain_value || 0)
+
+  let finalTotalExpenses = totalExpenses + shrinkageValue
+  let finalExpenseBreakdown = expenseBreakdown.map(e => ({
+    category_name: e.category_name,
+    total_amount: Number(e.total_amount)
+  }))
+  
+  if (shrinkageValue > 0) {
+    finalExpenseBreakdown.push({ category_name: 'Inventory Shrinkage', total_amount: shrinkageValue })
+  }
+  
+  finalExpenseBreakdown.sort((a, b) => b.total_amount - a.total_amount)
+
+  const grossProfit = revenue - cogs + gainValue
   const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0
-  const netProfit = grossProfit - totalExpenses
+  const netProfit = grossProfit - finalTotalExpenses
   const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0
 
   // 2. SALES CHANNEL ANALYTICS
@@ -78,8 +102,8 @@ export async function getComprehensiveReport(startDate: string, endDate: string)
       db.fn.sum<number>('net_total').as('total_amount')
     ])
     .where('is_deleted', '=', 0)
-    .where('date', '>=', start)
-    .where('date', '<=', end)
+    .where(sql`date(date)`, '>=', start)
+    .where(sql`date(date)`, '<=', end)
     .groupBy('sale_type')
     .execute()
 
@@ -98,11 +122,10 @@ export async function getComprehensiveReport(startDate: string, endDate: string)
       sql<number>`SUM(sale_items.line_total - (sale_items.qty * sale_items.cost_price_snapshot))`.as('estimated_profit')
     ])
     .where('sales.is_deleted', '=', 0)
-    .where('sales.date', '>=', start)
-    .where('sales.date', '<=', end)
+    .where(sql`date(sales.date)`, '>=', start)
+    .where(sql`date(sales.date)`, '<=', end)
     .groupBy('items.id')
     .orderBy('qty_sold', 'desc')
-    .limit(10)
     .execute()
 
   // 3. PURCHASES ANALYTICS
@@ -113,8 +136,8 @@ export async function getComprehensiveReport(startDate: string, endDate: string)
       db.fn.sum<number>('paid_amount').as('total_paid')
     ])
     .where('is_deleted', '=', 0)
-    .where('date', '>=', start)
-    .where('date', '<=', end)
+    .where(sql`date(date)`, '>=', start)
+    .where(sql`date(date)`, '<=', end)
     .executeTakeFirst()
 
   const purchasesCount = Number(purchasesRow?.purchases_count || 0)
@@ -128,8 +151,8 @@ export async function getComprehensiveReport(startDate: string, endDate: string)
       cogs,
       grossProfit,
       grossMargin: Number(grossMargin.toFixed(1)),
-      expenses: totalExpenses,
-      expenseBreakdown: expenseBreakdown.map(e => ({
+      expenses: finalTotalExpenses,
+      expenseBreakdown: finalExpenseBreakdown.map(e => ({
         category: e.category_name,
         amount: Number(e.total_amount)
       })),

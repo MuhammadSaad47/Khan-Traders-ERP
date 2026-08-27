@@ -7,6 +7,7 @@ export interface CartItem {
   qty: number;
   unit_price: number;
   line_total: number;
+  grouped_ids?: number[];
 }
 
 export interface CartState {
@@ -18,6 +19,7 @@ export interface CartState {
   sale_type: 'counter' | 'wholesale' | 'van';
   addItem: (item: any, ctns?: number) => void;
   updateCtns: (item_id: number, ctns: number) => void;
+  updatePrice: (item_id: number, unit_price: number) => void;
   removeItem: (item_id: number) => void;
   setCustomer: (id: number | string | undefined) => void;
   setDiscount: (amount: number) => void;
@@ -36,7 +38,7 @@ export const useCartStore = create<CartState>()(persist((set) => ({
   payment_method: undefined,
   sale_type: 'counter',
 
-  addItem: (item, ctns = 1) => set((state) => {
+  addItem: (item, ctns = 0) => set((state) => {
     const qty = ctns;
     const existing = state.items.find(i => i.item_id === item.id)
     if (existing) {
@@ -58,7 +60,8 @@ export const useCartStore = create<CartState>()(persist((set) => ({
         name: item.name,
         qty: qty,
         unit_price: price,
-        line_total: qty * price
+        line_total: qty * price,
+        grouped_ids: item.grouped_ids
       }]
     }
   }),
@@ -67,6 +70,15 @@ export const useCartStore = create<CartState>()(persist((set) => ({
     items: state.items.map(i => {
       if (i.item_id === item_id) {
         return { ...i, qty: ctns, line_total: ctns * i.unit_price };
+      }
+      return i;
+    })
+  })),
+
+  updatePrice: (item_id, unit_price) => set((state) => ({
+    items: state.items.map(i => {
+      if (i.item_id === item_id) {
+        return { ...i, unit_price, line_total: i.qty * unit_price };
       }
       return i;
     })

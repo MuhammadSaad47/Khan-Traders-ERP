@@ -30,6 +30,11 @@ export function registerCatalogIpc() {
   ipcMain.handle('catalog:getItems', async () => {
     return await catalogService.getItems()
   })
+
+  // Items grouped by product (for POS and Products pages)
+  ipcMain.handle('catalog:getItemsGrouped', async () => {
+    return await catalogService.getItemsGrouped()
+  })
   
   ipcMain.handle('catalog:createItem', async (_, data, userId: number) => {
     await requireRole(['admin', 'manager'])
@@ -46,5 +51,10 @@ export function registerCatalogIpc() {
   ipcMain.handle('catalog:deleteItem', async (_, id: number, userId: number) => {
     await requireRole(['admin', 'manager'])
     return await catalogService.deleteItem(id, userId)
+  })
+
+  // Analytics
+  ipcMain.handle('catalog:getAnalytics', async () => {
+    return await catalogService.getInventoryAnalytics()
   })
 }
